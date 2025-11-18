@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NexusChat | Supabase Edition (Fixed)</title>
+    
+    <style>
+        :root { --bg: #050505; --panel: #0a0f0d; --primary: #00ff9d; --text: #e0e0e0; }
+        body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Courier New', monospace; overflow: hidden; }
+        .hidden { display: none !important; }
+        .btn { background: var(--primary); color: black; font-weight: bold; border: none; padding: 10px; cursor: pointer; width: 100%; margin-top: 10px; }
+        .input-field { background: #111; border: 1px solid #333; color: var(--primary); padding: 10px; width: 95%; margin-bottom: 10px; display: block; }
+        .glass-card { background: rgba(20,20,20,0.9); border: 1px solid var(--primary); padding: 2rem; max-width: 400px; margin: 0 auto; }
+        .sidebar { width: 280px; background: var(--panel); border-right: 1px solid #333; display: flex; flex-direction: column; }
+        .main { flex: 1; display: flex; flex-direction: column; background: var(--bg); position: relative; }
+        .msg-bubble { padding: 8px 12px; border-radius: 8px; max-width: 75%; margin-bottom: 5px; word-wrap: break-word;}
+        .msg-mine { background: #004d33; margin-left: auto; border: 1px solid var(--primary); }
+        .msg-theirs { background: #222; border: 1px solid #444; }
+    </style>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <script>
+        // --- YOUR KEYS (PRE-FILLED) ---
+        const SUPABASE_URL = 'https://fvetudijcswrmtuxmnju.supabase.co'; 
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ2ZXR1ZGlqY3N3cm10dXhtbmp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM0NjkwMTgsImV4cCI6MjA3OTA0NTAxOH0.nxCeigXB6u_ENLVXY8W4ydN5T48HpiizhOKVcXEEBTE';
+
+        let supabase;
+        let currentUser = null;
+        let currentRoomId = null;
+
+        function initApp() {
+            try {
+                console.log("Connecting to Supabase...");
+                supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                
+                // Connection Test
+                supabase.from('rooms').select('count', { count: 'exact', head: true })
+                    .then(({ error }) => {
+                        if (error) console.error("Connection Test Failed:", error);
+                        else console.log("✅ Connected to Supabase!");
+                    });
+
+                // Check Session
+                supabase.auth.getSession().then(({ data: { session } }) => {
+                    if(session) handleUserSession(session.user);
+                    else showView('auth');
+                });
+
+                supabase.auth.onAuthStateChange((_event, session) => {
+                    if (session) handleUserSession(session.user);
+                    else {
+                        currentUser = null;
+                        showView('auth');
+                    }
+                });
+            } catch(e) {
+                alert("Critical Error: " + e.message);
+            }
+        }
+
+        async function handleUserSession(user) {
+            console.log("User logged in:", user.email);
+            currentUser = user;
+            showView('app');
+            
+            // Fetch Profile
+            const { data: profile, error } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+            
+            if(error) console.log("Profile fetch error (expected for new users):", error.message);
+            
+            if(profile) {
+                document.getElementById('my-avatar').src = profile.avatar;
+                document.getElementById('my-name').textContent = profile.username;
+            }
+            
+            initializeAppData();
+        }
+
+        // --- View Switcher ---
+        window.showView = (name) => {
+            document.getElementById('auth-view').classList.add('hidden');
+            document.getElementById('app-view').classList.add('hidden');
+            document.getElementById(name + '-view').classList.remove('hidden');
+        };
+
+        // --- Auth Logic ---
+        window.handleLogin = async () => {
+            const email = document.getElementById('l-email').value;
+            const pass = document.getElementById('l-pass').value;
+            const btn = document.getElementById('btn-login');
+            
+            btn.textContent = "Loading...";
+            const { error } = await supabase.auth.signInWithPassword({ email, password: pass });
+            btn.textContent = "LOGIN";
+            
+            if(error) {
+                if(error.message.includes("Email not confirmed")) {
+                    alert("Please go to Supabase Dashboard > Auth > Providers > Email and disable 'Confirm Email'.");
+                } else {
+                    alert("Login Failed: " + error.message);
+                }
+            }
+        };
+
+        window.handleSignup = async () => {
+            const email = document.getElementById('s-email').value;
+            const pass = document.getElementById('s-pass').value;
+            const username = document.getElementById('s-user').value;
+            const btn = document.getElementById('btn-signup');
+
+            if(!email || !pass || !username) return alert("Please fill all fields");
+
+            btn.textContent = "Creating...";
+            const { data, error } = await supabase.auth.signUp({ email, password: pass });
+            btn.textContent = "SIGN UP";
+
+            if(error) return alert("Signup Error: " + error.message);
+
+            if(data.user) {
+                // Create Profile
+                const { error: profileError } = await supabase.from('profiles').insert({
+                    id: data.user.id,
+                    username: username,
+                    email: email,
+                    bio: "Hacker",
+                    avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${data.user.id}`,
+                    status: 'online'
+                });
+
+                if(profileError) {
+                    alert("Account created but Profile failed: " + profileError.message);
+                } else {
+                    alert("✅ Account Created Successfully! You can now Login.");
+                    // Auto switch to login tab
+                    document.getElementById('f-signup').classList.add('hidden');
+                    document.getElementById('f-login').classList.remove('hidden');
+                }
+            }
+        };
+
+        window.handleLogout = async () => {
+            await supabase.auth.signOut();
+            window.location.reload();
+        };
+
+        // --- Data & Chat ---
+        function initializeAppData() {
+            fetchRooms();
+            fetchUsers();
+            
+            // Realtime Listeners
+            supabase.channel('public:rooms').on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, fetchRooms).subscribe();
+            supabase.channel('public:profiles').on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, fetchUsers).subscribe();
+        }
+
+        async function fetchRooms() {
+            const { data } = await supabase.from('rooms').select('*').order('created_at', { ascending: false });
+            const grid = document.getElementById('room-grid');
+            grid.innerHTML = '';
+            if(!data) return;
+            data.forEach(r => {
+                const div = document.createElement('div');
+                div.className = 'p-4 bg-gray-900 border border-gray-700 hover:border-green-500 cursor-pointer rounded mb-2';
+                div.innerHTML = `<div class="font-bold text-green-400"># ${r.name}</div>`;
+                div.onclick = () => openRoom(r.id, r.name);
+                grid.appendChild(div);
+            });
+        }
+
+        async function fetchUsers() {
+            const { data } = await supabase.from('profiles').select('*');
+            const list = document.getElementById('user-list');
+            list.innerHTML = '';
+            if(!data) return;
+            data.forEach(u => {
+                if(u.id === currentUser.id) return;
+                const div = document.createElement('div');
+                div.className = 'p-2 hover:bg-gray-800 cursor-pointer flex items-center gap-2 text-sm text-gray-400';
+                div.innerHTML = `<div class="w-2 h-2 rounded-full bg-green-500"></div> ${u.username}`;
+                list.appendChild(div);
+            });
+        }
+
+        async function openRoom(id, name) {
+            currentRoomId = id;
+            document.getElementById('chat-header').textContent = `# ${name}`;
+            document.getElementById('chat-interface').classList.remove('hidden');
+            document.getElementById('room-list-panel').classList.add('hidden'); // Mobile toggle
+            
+            loadMessages(id);
+            
+            // Realtime Messages
+            supabase.channel(`room:${id}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `room_id=eq.${id}` }, payload => {
+                renderMessage(payload.new, true);
+            }).subscribe();
+        }
+
+        async function loadMessages(id) {
+            document.getElementById('msg-box').innerHTML = '<div class="text-center text-gray-600 mt-4">Loading...</div>';
+            // Note: Simple select, in prod use join for usernames
+            const { data } = await supabase.from('messages').select('*').eq('room_id', id).order('created_at');
+            document.getElementById('msg-box').innerHTML = '';
+            if(data) data.forEach(m => renderMessage(m));
+        }
+
+        async function renderMessage(m, scroll=false) {
+            // Fetch sender name (simple caching could be added)
+            // For speed we just show ID or check cache if we had it. 
+            // To keep this file simple we show "User" or verify ID.
+            const isMe = m.sender_id === currentUser.id;
+            
+            const div = document.createElement('div');
+            div.className = `flex ${isMe ? 'justify-end' : 'justify-start'}`;
+            div.innerHTML = `<div class="msg-bubble ${isMe ? 'msg-mine' : 'msg-theirs'}">${m.text}</div>`;
+            
+            const box = document.getElementById('msg-box');
+            box.appendChild(div);
+            if(scroll || box.lastChild === div) box.scrollTop = box.scrollHeight;
+        }
+
+        window.sendMsg = async () => {
+            const inp = document.getElementById('msg-inp');
+            const text = inp.value.trim();
+            if(!text || !currentRoomId) return;
+            inp.value = '';
+            
+            await supabase.from('messages').insert({
+                room_id: currentRoomId,
+                text: text,
+                sender_id: currentUser.id
+            });
+        };
+
+        window.createRoom = async () => {
+            const name = prompt("Room Name:");
+            if(name) await supabase.from('rooms').insert({ name, created_by: currentUser.id });
+        };
+
+        window.onload = initApp;
+    </script>
+</head>
+<body>
+    <!-- AUTH VIEW -->
+    <div id="auth-view" class="h-screen flex items-center justify-center hidden">
+        <div class="glass-card">
+            <h1 class="text-3xl text-center text-green-500 mb-6 font-bold">NEXUS SYSTEM</h1>
+            
+            <div id="f-login">
+                <input id="l-email" type="email" class="input-field" placeholder="Email">
+                <input id="l-pass" type="password" class="input-field" placeholder="Password">
+                <button id="btn-login" onclick="handleLogin()" class="btn">LOGIN</button>
+                <p onclick="document.getElementById('f-login').classList.add('hidden'); document.getElementById('f-signup').classList.remove('hidden')" class="text-xs text-center mt-4 cursor-pointer hover:text-white">Initialize New Identity</p>
+            </div>
+
+            <div id="f-signup" class="hidden">
+                <input id="s-user" type="text" class="input-field" placeholder="Alias (Username)">
+                <input id="s-email" type="email" class="input-field" placeholder="Email">
+                <input id="s-pass" type="password" class="input-field" placeholder="Password">
+                <button id="btn-signup" onclick="handleSignup()" class="btn">SIGN UP</button>
+                <p onclick="document.getElementById('f-signup').classList.add('hidden'); document.getElementById('f-login').classList.remove('hidden')" class="text-xs text-center mt-4 cursor-pointer hover:text-white">Abort Initialization</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- APP VIEW -->
+    <div id="app-view" class="h-screen flex hidden">
+        <div class="sidebar bg-gray-900 p-4 hidden md:flex">
+            <div class="flex items-center gap-3 mb-6 pb-4 border-b border-gray-700">
+                <img id="my-avatar" class="w-10 h-10 rounded bg-gray-700">
+                <div class="font-bold text-green-500" id="my-name">User</div>
+                <button onclick="handleLogout()" class="ml-auto text-gray-500 hover:text-red-500"><i class="fas fa-power-off"></i></button>
+            </div>
+            <div class="text-xs font-bold text-gray-500 mb-2">ACTIVE NODES</div>
+            <div id="user-list" class="flex-1 overflow-y-auto"></div>
+        </div>
+
+        <div class="main">
+            <!-- Room List -->
+            <div id="room-list-panel" class="p-6 h-full overflow-y-auto">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold">CHANNELS</h2>
+                    <button onclick="createRoom()" class="bg-green-600 text-black px-4 py-1 rounded font-bold text-sm">CREATE +</button>
+                </div>
+                <div id="room-grid" class="grid grid-cols-1 md:grid-cols-3 gap-4"></div>
+            </div>
+
+            <!-- Chat Interface -->
+            <div id="chat-interface" class="absolute inset-0 bg-gray-900 flex flex-col hidden">
+                <div class="h-14 border-b border-gray-800 flex items-center px-4 bg-black">
+                    <button onclick="document.getElementById('chat-interface').classList.add('hidden'); document.getElementById('room-list-panel').classList.remove('hidden')" class="mr-4 text-gray-500 md:hidden"><i class="fas fa-arrow-left"></i></button>
+                    <span id="chat-header" class="font-bold text-green-500"># Room</span>
+                </div>
+                <div id="msg-box" class="flex-1 overflow-y-auto p-4 space-y-2"></div>
+                <div class="p-4 border-t border-gray-800 flex gap-2 bg-black">
+                    <input id="msg-inp" type="text" class="flex-1 bg-gray-900 border border-gray-700 rounded px-4 py-2 text-white" placeholder="Message..." onkeypress="if(event.key==='Enter') sendMsg()">
+                    <button onclick="sendMsg()" class="bg-green-600 text-black px-4 rounded font-bold"><i class="fas fa-paper-plane"></i></button>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
