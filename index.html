@@ -3,20 +3,44 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NexusChat | Supabase Edition (Fixed)</title>
+    <title>NexusChat | Pro Edition</title>
     
     <style>
-        :root { --bg: #050505; --panel: #0a0f0d; --primary: #00ff9d; --text: #e0e0e0; }
+        :root { --bg: #09090b; --panel: #18181b; --primary: #10b981; --text: #e4e4e7; --danger: #ef4444; }
         body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Courier New', monospace; overflow: hidden; }
         .hidden { display: none !important; }
-        .btn { background: var(--primary); color: black; font-weight: bold; border: none; padding: 10px; cursor: pointer; width: 100%; margin-top: 10px; }
-        .input-field { background: #111; border: 1px solid #333; color: var(--primary); padding: 10px; width: 95%; margin-bottom: 10px; display: block; }
-        .glass-card { background: rgba(20,20,20,0.9); border: 1px solid var(--primary); padding: 2rem; max-width: 400px; margin: 0 auto; }
-        .sidebar { width: 280px; background: var(--panel); border-right: 1px solid #333; display: flex; flex-direction: column; }
+        
+        * { transition: background-color 0.2s, border-color 0.2s; }
+        
+        .btn { background: var(--primary); color: black; font-weight: 800; border: none; padding: 12px; cursor: pointer; width: 100%; border-radius: 6px; text-transform: uppercase; letter-spacing: 1px; }
+        .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+        
+        .input-field { background: #27272a; border: 1px solid #3f3f46; color: white; padding: 12px; width: 100%; border-radius: 6px; outline: none; font-family: inherit; }
+        .input-field:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2); }
+        
+        .glass-card { background: rgba(24, 24, 27, 0.95); border: 1px solid #3f3f46; padding: 2.5rem; width: 100%; max-width: 400px; margin: 0 auto; border-radius: 12px; }
+
+        /* Layout */
+        .sidebar { width: 300px; background: var(--panel); border-right: 1px solid #27272a; display: flex; flex-direction: column; }
         .main { flex: 1; display: flex; flex-direction: column; background: var(--bg); position: relative; }
-        .msg-bubble { padding: 8px 12px; border-radius: 8px; max-width: 75%; margin-bottom: 5px; word-wrap: break-word;}
-        .msg-mine { background: #004d33; margin-left: auto; border: 1px solid var(--primary); }
-        .msg-theirs { background: #222; border: 1px solid #444; }
+        
+        /* Chat */
+        .msg-row { display: flex; margin-bottom: 12px; padding: 0 20px; animation: fadeIn 0.3s ease; }
+        .msg-bubble { padding: 10px 16px; border-radius: 12px; max-width: 70%; position: relative; font-family: sans-serif; line-height: 1.5; box-shadow: 0 2px 4px rgba(0,0,0,0.2); word-wrap: break-word; }
+        .msg-mine { background: #064e3b; margin-left: auto; border: 1px solid #059669; color: #d1fae5; border-bottom-right-radius: 2px; }
+        .msg-theirs { background: #27272a; border: 1px solid #3f3f46; color: #e4e4e7; border-bottom-left-radius: 2px; }
+        
+        .msg-actions { position: absolute; top: 50%; transform: translateY(-50%); opacity: 0; transition: opacity 0.2s; }
+        .msg-mine .msg-actions { left: -30px; }
+        .msg-row:hover .msg-actions { opacity: 1; }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        
+        @media (max-width: 768px) {
+            .sidebar { width: 100%; height: 100%; position: absolute; z-index: 50; transform: translateX(-100%); transition: transform 0.3s ease-in-out; }
+            .sidebar.open { transform: translateX(0); }
+            .msg-bubble { max-width: 85%; }
+        }
     </style>
 
     <script src="https://cdn.tailwindcss.com"></script>
@@ -24,148 +48,102 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <script>
-        // --- YOUR KEYS (PRE-FILLED) ---
         const SUPABASE_URL = 'https://fvetudijcswrmtuxmnju.supabase.co'; 
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ2ZXR1ZGlqY3N3cm10dXhtbmp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM0NjkwMTgsImV4cCI6MjA3OTA0NTAxOH0.nxCeigXB6u_ENLVXY8W4ydN5T48HpiizhOKVcXEEBTE';
 
-        let supabase;
-        let currentUser = null;
-        let currentRoomId = null;
+        let supabase, currentUser = null, currentRoomId = null, messageSubscription = null;
 
         function initApp() {
-            try {
-                console.log("Connecting to Supabase...");
-                supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-                
-                // Connection Test
-                supabase.from('rooms').select('count', { count: 'exact', head: true })
-                    .then(({ error }) => {
-                        if (error) console.error("Connection Test Failed:", error);
-                        else console.log("✅ Connected to Supabase!");
-                    });
-
-                // Check Session
-                supabase.auth.getSession().then(({ data: { session } }) => {
-                    if(session) handleUserSession(session.user);
-                    else showView('auth');
-                });
-
-                supabase.auth.onAuthStateChange((_event, session) => {
-                    if (session) handleUserSession(session.user);
-                    else {
-                        currentUser = null;
-                        showView('auth');
-                    }
-                });
-            } catch(e) {
-                alert("Critical Error: " + e.message);
-            }
+            supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            supabase.auth.getSession().then(({ data: { session } }) => {
+                if(session) handleSession(session.user);
+                else showView('auth');
+            });
+            supabase.auth.onAuthStateChange((_event, session) => {
+                if (session) handleSession(session.user);
+                else { currentUser = null; showView('auth'); }
+            });
         }
 
-        async function handleUserSession(user) {
-            console.log("User logged in:", user.email);
+        async function handleSession(user) {
             currentUser = user;
             showView('app');
-            
-            // Fetch Profile
-            const { data: profile, error } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-            
-            if(error) console.log("Profile fetch error (expected for new users):", error.message);
-            
-            if(profile) {
-                document.getElementById('my-avatar').src = profile.avatar;
-                document.getElementById('my-name').textContent = profile.username;
-            }
-            
-            initializeAppData();
+            loadProfile();
+            initializeRealtime();
         }
 
-        // --- View Switcher ---
-        window.showView = (name) => {
-            document.getElementById('auth-view').classList.add('hidden');
-            document.getElementById('app-view').classList.add('hidden');
-            document.getElementById(name + '-view').classList.remove('hidden');
-        };
+        // --- NAVIGATION ---
+        const getEl = (id) => document.getElementById(id);
+        
+        function showView(name) {
+            ['auth-view', 'app-view'].forEach(id => getEl(id).classList.add('hidden'));
+            getEl(name + '-view').classList.remove('hidden');
+        }
 
-        // --- Auth Logic ---
-        window.handleLogin = async () => {
-            const email = document.getElementById('l-email').value;
-            const pass = document.getElementById('l-pass').value;
-            const btn = document.getElementById('btn-login');
-            
-            btn.textContent = "Loading...";
-            const { error } = await supabase.auth.signInWithPassword({ email, password: pass });
-            btn.textContent = "LOGIN";
-            
-            if(error) {
-                if(error.message.includes("Email not confirmed")) {
-                    alert("Please go to Supabase Dashboard > Auth > Providers > Email and disable 'Confirm Email'.");
-                } else {
-                    alert("Login Failed: " + error.message);
+        function toggleSidebar(show) {
+            const sb = getEl('sidebar');
+            if(show) sb.classList.add('open');
+            else sb.classList.remove('open');
+        }
+
+        function switchPanel(panelId) {
+            // Mobile Logic
+            if (window.innerWidth < 768) {
+                toggleSidebar(false); // Auto close sidebar
+                ['room-list-panel', 'chat-interface', 'profile-panel'].forEach(p => getEl(p).classList.add('hidden'));
+                getEl(panelId).classList.remove('hidden');
+            } else {
+                // Desktop Logic
+                if(panelId === 'profile-panel') {
+                    getEl('profile-panel').classList.remove('hidden');
+                    getEl('chat-interface').classList.add('hidden');
+                } else if(panelId === 'chat-interface') {
+                    getEl('profile-panel').classList.add('hidden');
+                    getEl('chat-interface').classList.remove('hidden');
+                } else if(panelId === 'room-list-panel') {
+                    getEl('profile-panel').classList.add('hidden');
+                    // Only show empty state or keep chat if open
                 }
             }
-        };
+        }
 
-        window.handleSignup = async () => {
-            const email = document.getElementById('s-email').value;
-            const pass = document.getElementById('s-pass').value;
-            const username = document.getElementById('s-user').value;
-            const btn = document.getElementById('btn-signup');
+        function goBack() {
+            // Smart Back Button
+            if(currentRoomId) switchPanel('chat-interface');
+            else switchPanel('room-list-panel');
+        }
 
-            if(!email || !pass || !username) return alert("Please fill all fields");
-
-            btn.textContent = "Creating...";
-            const { data, error } = await supabase.auth.signUp({ email, password: pass });
-            btn.textContent = "SIGN UP";
-
-            if(error) return alert("Signup Error: " + error.message);
-
-            if(data.user) {
-                // Create Profile
-                const { error: profileError } = await supabase.from('profiles').insert({
-                    id: data.user.id,
-                    username: username,
-                    email: email,
-                    bio: "Hacker",
-                    avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${data.user.id}`,
-                    status: 'online'
-                });
-
-                if(profileError) {
-                    alert("Account created but Profile failed: " + profileError.message);
-                } else {
-                    alert("✅ Account Created Successfully! You can now Login.");
-                    // Auto switch to login tab
-                    document.getElementById('f-signup').classList.add('hidden');
-                    document.getElementById('f-login').classList.remove('hidden');
-                }
+        // --- DATA ---
+        async function loadProfile() {
+            const { data } = await supabase.from('profiles').select('*').eq('id', currentUser.id).single();
+            if(data) {
+                getEl('my-avatar').src = data.avatar;
+                getEl('my-name').textContent = data.username;
+                getEl('edit-username').value = data.username;
+                getEl('edit-bio').value = data.bio || '';
+                getEl('edit-avatar-preview').src = data.avatar;
             }
-        };
+        }
 
-        window.handleLogout = async () => {
-            await supabase.auth.signOut();
-            window.location.reload();
-        };
-
-        // --- Data & Chat ---
-        function initializeAppData() {
-            fetchRooms();
-            fetchUsers();
-            
-            // Realtime Listeners
+        function initializeRealtime() {
+            fetchRooms(); fetchUsers();
             supabase.channel('public:rooms').on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, fetchRooms).subscribe();
             supabase.channel('public:profiles').on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, fetchUsers).subscribe();
         }
 
         async function fetchRooms() {
             const { data } = await supabase.from('rooms').select('*').order('created_at', { ascending: false });
-            const grid = document.getElementById('room-grid');
+            const grid = getEl('room-grid');
             grid.innerHTML = '';
-            if(!data) return;
-            data.forEach(r => {
+            data?.forEach(r => {
                 const div = document.createElement('div');
-                div.className = 'p-4 bg-gray-900 border border-gray-700 hover:border-green-500 cursor-pointer rounded mb-2';
-                div.innerHTML = `<div class="font-bold text-green-400"># ${r.name}</div>`;
+                div.className = 'p-4 bg-[#27272a] border border-[#3f3f46] hover:border-emerald-500 cursor-pointer rounded-lg transition group relative';
+                div.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div class="font-bold text-emerald-400 text-lg"># ${r.name}</div>
+                        ${r.created_by === currentUser.id ? `<button onclick="event.stopPropagation(); deleteRoom('${r.id}')" class="text-red-500 opacity-0 group-hover:opacity-100 transition"><i class="fas fa-trash"></i></button>` : ''}
+                    </div>
+                `;
                 div.onclick = () => openRoom(r.id, r.name);
                 grid.appendChild(div);
             });
@@ -173,131 +151,209 @@
 
         async function fetchUsers() {
             const { data } = await supabase.from('profiles').select('*');
-            const list = document.getElementById('user-list');
+            const list = getEl('user-list');
             list.innerHTML = '';
-            if(!data) return;
-            data.forEach(u => {
+            data?.forEach(u => {
                 if(u.id === currentUser.id) return;
                 const div = document.createElement('div');
-                div.className = 'p-2 hover:bg-gray-800 cursor-pointer flex items-center gap-2 text-sm text-gray-400';
-                div.innerHTML = `<div class="w-2 h-2 rounded-full bg-green-500"></div> ${u.username}`;
+                div.className = 'p-3 hover:bg-[#27272a] cursor-pointer flex items-center gap-3 rounded-lg transition mb-1';
+                div.innerHTML = `
+                    <div class="relative"><img src="${u.avatar}" class="w-8 h-8 rounded-full bg-gray-700">
+                    <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-[#18181b] ${u.status === 'online' ? 'bg-green-500' : 'bg-gray-500'}"></div></div>
+                    <div class="text-sm font-medium text-gray-300">${u.username}</div>
+                `;
+                div.onclick = () => startDM(u);
                 list.appendChild(div);
             });
         }
 
+        // --- CHAT ---
         async function openRoom(id, name) {
             currentRoomId = id;
-            document.getElementById('chat-header').textContent = `# ${name}`;
-            document.getElementById('chat-interface').classList.remove('hidden');
-            document.getElementById('room-list-panel').classList.add('hidden'); // Mobile toggle
+            getEl('chat-header-name').textContent = name;
+            switchPanel('chat-interface');
             
-            loadMessages(id);
-            
-            // Realtime Messages
-            supabase.channel(`room:${id}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `room_id=eq.${id}` }, payload => {
-                renderMessage(payload.new, true);
-            }).subscribe();
+            const box = getEl('msg-box');
+            box.innerHTML = '<div class="flex justify-center mt-10"><i class="fas fa-circle-notch fa-spin text-emerald-500 text-2xl"></i></div>';
+
+            const { data } = await supabase.from('messages').select('*, profiles(username, avatar)').eq('room_id', id).order('created_at');
+            box.innerHTML = '';
+            data?.forEach(m => renderMessage(m));
+            box.scrollTop = box.scrollHeight;
+
+            if(messageSubscription) supabase.removeChannel(messageSubscription);
+            messageSubscription = supabase.channel(`room:${id}`)
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `room_id=eq.${id}` }, payload => {
+                    supabase.from('profiles').select('username, avatar').eq('id', payload.new.sender_id).single().then(({data}) => {
+                        renderMessage({ ...payload.new, profiles: data }, true);
+                    });
+                })
+                .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, payload => {
+                    const el = document.getElementById(`msg-${payload.old.id}`);
+                    if(el) el.remove();
+                })
+                .subscribe();
         }
 
-        async function loadMessages(id) {
-            document.getElementById('msg-box').innerHTML = '<div class="text-center text-gray-600 mt-4">Loading...</div>';
-            // Note: Simple select, in prod use join for usernames
-            const { data } = await supabase.from('messages').select('*').eq('room_id', id).order('created_at');
-            document.getElementById('msg-box').innerHTML = '';
-            if(data) data.forEach(m => renderMessage(m));
-        }
-
-        async function renderMessage(m, scroll=false) {
-            // Fetch sender name (simple caching could be added)
-            // For speed we just show ID or check cache if we had it. 
-            // To keep this file simple we show "User" or verify ID.
+        function renderMessage(m, scroll = false) {
+            const box = getEl('msg-box');
             const isMe = m.sender_id === currentUser.id;
-            
             const div = document.createElement('div');
-            div.className = `flex ${isMe ? 'justify-end' : 'justify-start'}`;
-            div.innerHTML = `<div class="msg-bubble ${isMe ? 'msg-mine' : 'msg-theirs'}">${m.text}</div>`;
-            
-            const box = document.getElementById('msg-box');
+            div.id = `msg-${m.id}`;
+            div.className = `msg-row ${isMe ? 'justify-end' : 'justify-start'}`;
+            div.innerHTML = `
+                ${!isMe ? `<img src="${m.profiles?.avatar}" class="w-8 h-8 rounded-full mr-2 mt-1 self-end">` : ''}
+                <div class="msg-bubble ${isMe ? 'msg-mine' : 'msg-theirs'} group relative">
+                    ${!isMe ? `<div class="text-[10px] text-emerald-500 font-bold mb-1">${m.profiles?.username}</div>` : ''}
+                    <div class="text-sm">${m.text}</div>
+                    <div class="text-[9px] opacity-50 text-right mt-1">${new Date(m.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
+                    ${isMe ? `<div class="msg-actions"><button onclick="deleteMessage('${m.id}')" class="bg-black rounded-full w-6 h-6 flex items-center justify-center text-red-500 border border-red-900"><i class="fas fa-trash-alt text-[10px]"></i></button></div>` : ''}
+                </div>
+            `;
             box.appendChild(div);
-            if(scroll || box.lastChild === div) box.scrollTop = box.scrollHeight;
+            if(scroll) box.scrollTop = box.scrollHeight;
         }
 
-        window.sendMsg = async () => {
-            const inp = document.getElementById('msg-inp');
-            const text = inp.value.trim();
-            if(!text || !currentRoomId) return;
+        async function sendMsg() {
+            const inp = getEl('msg-inp');
+            if(!inp.value.trim() || !currentRoomId) return;
+            await supabase.from('messages').insert({ room_id: currentRoomId, text: inp.value.trim(), sender_id: currentUser.id });
             inp.value = '';
-            
-            await supabase.from('messages').insert({
-                room_id: currentRoomId,
-                text: text,
-                sender_id: currentUser.id
-            });
-        };
+        }
 
-        window.createRoom = async () => {
+        async function deleteMessage(id) {
+            if(confirm("Delete?")) await supabase.from('messages').delete().eq('id', id);
+        }
+
+        async function createRoom() {
             const name = prompt("Room Name:");
             if(name) await supabase.from('rooms').insert({ name, created_by: currentUser.id });
-        };
+        }
+        
+        async function deleteRoom(id) {
+            if(confirm("Delete Room?")) await supabase.from('rooms').delete().eq('id', id);
+        }
+
+        function startDM(user) {
+            const ids = [currentUser.id, user.id].sort();
+            openRoom(`${ids[0]}_${ids[1]}`, `@${user.username}`);
+        }
+
+        async function updateProfile() {
+            const updates = { username: getEl('edit-username').value, bio: getEl('edit-bio').value, updated_at: new Date() };
+            await supabase.from('profiles').update(updates).eq('id', currentUser.id);
+            alert("Updated!"); loadProfile(); goBack();
+        }
+
+        // --- AUTH ---
+        async function handleLogin() {
+            const { error } = await supabase.auth.signInWithPassword({ email: getEl('l-email').value, password: getEl('l-pass').value });
+            if(error) alert(error.message);
+        }
+        async function handleSignup() {
+            const { data, error } = await supabase.auth.signUp({ email: getEl('s-email').value, password: getEl('s-pass').value });
+            if(error) return alert(error.message);
+            if(data.user) {
+                await supabase.from('profiles').insert({ id: data.user.id, username: getEl('s-user').value, email: getEl('s-email').value, avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${data.user.id}`, status: 'online' });
+                alert("Login Now"); getEl('f-signup').classList.add('hidden'); getEl('f-login').classList.remove('hidden');
+            }
+        }
+        async function handleLogout() { await supabase.auth.signOut(); window.location.reload(); }
 
         window.onload = initApp;
     </script>
 </head>
 <body>
-    <!-- AUTH VIEW -->
     <div id="auth-view" class="h-screen flex items-center justify-center hidden">
-        <div class="glass-card">
-            <h1 class="text-3xl text-center text-green-500 mb-6 font-bold">NEXUS SYSTEM</h1>
-            
-            <div id="f-login">
+        <div class="glass-card text-center">
+            <h1 class="text-4xl text-emerald-400 font-black mb-6">NEXUS</h1>
+            <div id="f-login" class="space-y-4">
                 <input id="l-email" type="email" class="input-field" placeholder="Email">
                 <input id="l-pass" type="password" class="input-field" placeholder="Password">
-                <button id="btn-login" onclick="handleLogin()" class="btn">LOGIN</button>
-                <p onclick="document.getElementById('f-login').classList.add('hidden'); document.getElementById('f-signup').classList.remove('hidden')" class="text-xs text-center mt-4 cursor-pointer hover:text-white">Initialize New Identity</p>
+                <button onclick="handleLogin()" class="btn">LOGIN</button>
+                <p onclick="getEl('f-login').classList.add('hidden'); getEl('f-signup').classList.remove('hidden')" class="text-xs mt-4 cursor-pointer text-gray-500">Create Account</p>
             </div>
-
-            <div id="f-signup" class="hidden">
-                <input id="s-user" type="text" class="input-field" placeholder="Alias (Username)">
+            <div id="f-signup" class="hidden space-y-4">
+                <input id="s-user" type="text" class="input-field" placeholder="Username">
                 <input id="s-email" type="email" class="input-field" placeholder="Email">
                 <input id="s-pass" type="password" class="input-field" placeholder="Password">
-                <button id="btn-signup" onclick="handleSignup()" class="btn">SIGN UP</button>
-                <p onclick="document.getElementById('f-signup').classList.add('hidden'); document.getElementById('f-login').classList.remove('hidden')" class="text-xs text-center mt-4 cursor-pointer hover:text-white">Abort Initialization</p>
+                <button onclick="handleSignup()" class="btn">SIGN UP</button>
+                <p onclick="getEl('f-signup').classList.add('hidden'); getEl('f-login').classList.remove('hidden')" class="text-xs mt-4 cursor-pointer text-gray-500">Back</p>
             </div>
         </div>
     </div>
 
-    <!-- APP VIEW -->
     <div id="app-view" class="h-screen flex hidden">
-        <div class="sidebar bg-gray-900 p-4 hidden md:flex">
-            <div class="flex items-center gap-3 mb-6 pb-4 border-b border-gray-700">
-                <img id="my-avatar" class="w-10 h-10 rounded bg-gray-700">
-                <div class="font-bold text-green-500" id="my-name">User</div>
-                <button onclick="handleLogout()" class="ml-auto text-gray-500 hover:text-red-500"><i class="fas fa-power-off"></i></button>
+        <!-- SIDEBAR -->
+        <div id="sidebar" class="sidebar bg-[#18181b] p-4 flex-shrink-0">
+            <!-- Mobile Close Button -->
+            <div class="md:hidden flex justify-end mb-4">
+                <button onclick="toggleSidebar(false)" class="text-gray-400 hover:text-white p-2"><i class="fas fa-times text-xl"></i></button>
             </div>
-            <div class="text-xs font-bold text-gray-500 mb-2">ACTIVE NODES</div>
+
+            <div class="flex items-center gap-3 mb-6 pb-4 border-b border-[#27272a] cursor-pointer hover:bg-[#27272a] p-2 rounded" onclick="switchPanel('profile-panel')">
+                <img id="my-avatar" class="w-12 h-12 rounded-lg border border-emerald-500">
+                <div class="flex-1 overflow-hidden">
+                    <div class="font-bold text-emerald-400 truncate" id="my-name">...</div>
+                    <div class="text-[10px] text-gray-500">ONLINE</div>
+                </div>
+                <button onclick="event.stopPropagation(); handleLogout()" class="text-red-500"><i class="fas fa-power-off"></i></button>
+            </div>
+            
+            <div class="space-y-1 mb-6">
+                <button onclick="switchPanel('room-list-panel')" class="w-full text-left p-2 text-sm font-bold text-gray-300 hover:bg-[#27272a] rounded"><i class="fas fa-hashtag mr-2"></i> CHANNELS</button>
+                <button onclick="switchPanel('profile-panel')" class="w-full text-left p-2 text-sm font-bold text-gray-300 hover:bg-[#27272a] rounded"><i class="fas fa-cog mr-2"></i> SETTINGS</button>
+            </div>
+            <div class="text-[10px] font-bold text-gray-600 mb-2">DIRECT MESSAGES</div>
             <div id="user-list" class="flex-1 overflow-y-auto"></div>
         </div>
 
-        <div class="main">
-            <!-- Room List -->
-            <div id="room-list-panel" class="p-6 h-full overflow-y-auto">
-                <div class="flex justify-between items-center mb-6">
-                    <h2 class="text-2xl font-bold">CHANNELS</h2>
-                    <button onclick="createRoom()" class="bg-green-600 text-black px-4 py-1 rounded font-bold text-sm">CREATE +</button>
-                </div>
-                <div id="room-grid" class="grid grid-cols-1 md:grid-cols-3 gap-4"></div>
+        <!-- MAIN -->
+        <div class="main relative w-full">
+            <!-- Mobile Header -->
+            <div class="md:hidden h-14 border-b border-[#27272a] flex items-center justify-between px-4 bg-black">
+                <button onclick="toggleSidebar(true)" class="text-emerald-500 text-xl"><i class="fas fa-bars"></i></button>
+                <span class="font-bold text-lg">NEXUS</span>
+                <div class="w-5"></div>
             </div>
 
-            <!-- Chat Interface -->
-            <div id="chat-interface" class="absolute inset-0 bg-gray-900 flex flex-col hidden">
-                <div class="h-14 border-b border-gray-800 flex items-center px-4 bg-black">
-                    <button onclick="document.getElementById('chat-interface').classList.add('hidden'); document.getElementById('room-list-panel').classList.remove('hidden')" class="mr-4 text-gray-500 md:hidden"><i class="fas fa-arrow-left"></i></button>
-                    <span id="chat-header" class="font-bold text-green-500"># Room</span>
+            <!-- ROOM LIST -->
+            <div id="room-list-panel" class="p-6 h-full overflow-y-auto w-full">
+                <div class="flex justify-between items-center mb-8">
+                    <h2 class="text-2xl font-bold text-white">CHANNELS</h2>
+                    <button onclick="createRoom()" class="bg-[#27272a] hover:bg-[#3f3f46] text-white px-4 py-2 rounded text-sm border border-[#3f3f46]">+ NEW</button>
                 </div>
-                <div id="msg-box" class="flex-1 overflow-y-auto p-4 space-y-2"></div>
-                <div class="p-4 border-t border-gray-800 flex gap-2 bg-black">
-                    <input id="msg-inp" type="text" class="flex-1 bg-gray-900 border border-gray-700 rounded px-4 py-2 text-white" placeholder="Message..." onkeypress="if(event.key==='Enter') sendMsg()">
-                    <button onclick="sendMsg()" class="bg-green-600 text-black px-4 rounded font-bold"><i class="fas fa-paper-plane"></i></button>
+                <div id="room-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+            </div>
+
+            <!-- CHAT -->
+            <div id="chat-interface" class="absolute inset-0 bg-[#09090b] flex flex-col hidden w-full h-full z-10">
+                <div class="h-16 border-b border-[#27272a] flex items-center justify-between px-4 bg-[#18181b]">
+                    <button onclick="switchPanel('room-list-panel')" class="text-gray-400 md:hidden mr-4"><i class="fas fa-arrow-left"></i></button>
+                    <div class="font-bold text-lg flex items-center gap-2 truncate"><span class="text-emerald-500">#</span> <span id="chat-header-name">Room</span></div>
+                    <div class="w-8"></div>
+                </div>
+                <div id="msg-box" class="flex-1 overflow-y-auto p-4"></div>
+                <div class="p-4 border-t border-[#27272a] bg-[#18181b] flex gap-2">
+                    <input id="msg-inp" type="text" class="flex-1 bg-[#27272a] border-none text-white rounded px-4 focus:ring-1 focus:ring-emerald-500 outline-none" placeholder="Message..." onkeypress="if(event.key==='Enter') sendMsg()">
+                    <button onclick="sendMsg()" class="bg-emerald-600 text-white w-10 h-10 rounded flex items-center justify-center"><i class="fas fa-paper-plane"></i></button>
+                </div>
+            </div>
+
+            <!-- PROFILE -->
+            <div id="profile-panel" class="absolute inset-0 bg-[#09090b] flex flex-col items-center justify-center hidden z-20 w-full h-full">
+                <div class="glass-card w-full max-w-lg p-8 relative">
+                    <button onclick="goBack()" class="absolute top-4 right-4 text-gray-400 hover:text-white"><i class="fas fa-times text-xl"></i></button>
+                    <h2 class="text-2xl font-bold text-white mb-6">EDIT PROFILE</h2>
+                    <div class="flex items-center gap-4 mb-6">
+                        <img id="edit-avatar-preview" src="" class="w-16 h-16 rounded-full border border-emerald-500">
+                        <div class="text-xs text-gray-500">Avatar is auto-generated.</div>
+                    </div>
+                    <div class="space-y-4">
+                        <input id="edit-username" type="text" class="input-field" placeholder="Display Name">
+                        <textarea id="edit-bio" rows="3" class="input-field" placeholder="Bio"></textarea>
+                        <button onclick="updateProfile()" class="btn">SAVE</button>
+                    </div>
                 </div>
             </div>
         </div>
