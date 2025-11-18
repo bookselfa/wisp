@@ -3,59 +3,50 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>NexusChat | Universal Edition</title>
+    <title>NexusChat | Debug Edition</title>
     
     <style>
         :root { --bg: #09090b; --panel: #18181b; --primary: #10b981; --text: #e4e4e7; --danger: #ef4444; }
         
-        /* Base Layout - Fixed to prevent bounces */
         body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Courier New', monospace; overflow: hidden; position: fixed; inset: 0; }
         .hidden { display: none !important; }
+        * { transition: background-color 0.2s, border-color 0.2s; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         
-        * { transition: background-color 0.2s, border-color 0.2s, transform 0.2s; -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
-        
-        /* Components */
-        .btn { background: var(--primary); color: black; font-weight: 800; border: none; padding: 14px; cursor: pointer; width: 100%; border-radius: 8px; text-transform: uppercase; letter-spacing: 1px; font-size: 14px; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 3px; }
+
+        .btn { background: var(--primary); color: black; font-weight: 800; border: none; padding: 12px; cursor: pointer; width: 100%; border-radius: 8px; text-transform: uppercase; letter-spacing: 1px; font-size: 14px; }
         .btn:active { transform: scale(0.98); opacity: 0.9; }
         
-        .input-field { background: #27272a; border: 1px solid #3f3f46; color: white; padding: 14px; width: 100%; border-radius: 8px; outline: none; font-family: inherit; font-size: 16px; }
-        .input-field:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.1); }
+        .input-field { background: #27272a; border: 1px solid #3f3f46; color: white; padding: 12px; width: 100%; border-radius: 8px; outline: none; font-family: inherit; }
+        .input-field:focus { border-color: var(--primary); }
         
-        .glass-card { background: rgba(24, 24, 27, 0.98); border: 1px solid #3f3f46; padding: 2rem; width: 90%; max-width: 400px; margin: auto; border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); }
+        .glass-card { background: rgba(24, 24, 27, 0.98); border: 1px solid #3f3f46; padding: 2rem; width: 90%; max-width: 400px; margin: auto; border-radius: 16px; }
 
-        /* Layout Grid */
         .app-container { display: flex; width: 100%; height: 100%; overflow: hidden; position: relative; }
         .sidebar { width: 300px; background: var(--panel); border-right: 1px solid #27272a; display: flex; flex-direction: column; height: 100%; flex-shrink: 0; z-index: 40; }
         .main-area { flex: 1; display: flex; flex-direction: column; background: var(--bg); position: relative; height: 100%; overflow: hidden; }
         
-        /* Chat Elements */
-        .msg-row { display: flex; margin-bottom: 16px; padding: 0 16px; animation: slideIn 0.3s ease; }
-        .msg-bubble { padding: 12px 16px; border-radius: 12px; max-width: 85%; position: relative; font-family: sans-serif; line-height: 1.5; font-size: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); word-wrap: break-word; }
+        .msg-row { display: flex; margin-bottom: 12px; padding: 0 20px; animation: popIn 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        .msg-bubble { padding: 10px 14px; border-radius: 12px; max-width: 75%; position: relative; font-family: sans-serif; line-height: 1.5; font-size: 15px; box-shadow: 0 1px 2px rgba(0,0,0,0.2); word-wrap: break-word; }
         .msg-mine { background: #064e3b; margin-left: auto; border: 1px solid #059669; color: #ecfdf5; border-bottom-right-radius: 2px; }
         .msg-theirs { background: #27272a; border: 1px solid #3f3f46; color: #e4e4e7; border-bottom-left-radius: 2px; }
-        
+        .msg-pending { opacity: 0.6; border: 1px dashed #10b981; }
+
         .msg-actions { position: absolute; top: 50%; transform: translateY(-50%); left: -40px; opacity: 0; transition: opacity 0.2s; }
         .msg-row:hover .msg-actions { opacity: 1; }
-        /* On touch devices, showing actions on hover is tricky, so we rely on tap logic or simple visibility */
-        @media (hover: none) { .msg-actions { opacity: 1; left: -35px; } } 
-
-        @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         
-        /* Responsive Breakpoints */
-        /* Mobile (< 768px) */
+        @keyframes popIn { from { opacity: 0; transform: scale(0.95) translateY(5px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+
         @media (max-width: 768px) {
             .sidebar { position: absolute; top: 0; left: 0; width: 85%; max-width: 320px; transform: translateX(-100%); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 10px 0 25px rgba(0,0,0,0.5); }
             .sidebar.open { transform: translateX(0); }
-            .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 30; backdrop-filter: blur(2px); opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+            .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 30; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
             .overlay.visible { opacity: 1; pointer-events: auto; }
-            .btn { padding: 16px; } /* Larger touch target */
+            .msg-bubble { max-width: 85%; }
         }
-
-        /* Tablet & Desktop adjustments */
-        @media (min-width: 769px) {
-            .overlay { display: none; }
-            .msg-bubble { max-width: 70%; }
-        }
+        @media (min-width: 769px) { .overlay { display: none; } .msg-bubble { max-width: 60%; } }
     </style>
 
     <script src="https://cdn.tailwindcss.com"></script>
@@ -63,139 +54,112 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <script>
-        // --- CONFIG ---
+        // --- CONFIGURATION ---
         const SUPABASE_URL = 'https://fvetudijcswrmtuxmnju.supabase.co'; 
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ2ZXR1ZGlqY3N3cm10dXhtbmp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM0NjkwMTgsImV4cCI6MjA3OTA0NTAxOH0.nxCeigXB6u_ENLVXY8W4ydN5T48HpiizhOKVcXEEBTE';
 
         let supabase, currentUser = null, currentRoomId = null, messageSubscription = null;
+        const profileCache = {}; 
 
         function initApp() {
             supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
             
+            // Connection Check
+            supabase.from('rooms').select('count', { count: 'exact', head: true }).then(({ error }) => {
+                if(error) console.error('DB Error:', error);
+                else document.getElementById('status-indicator').classList.replace('text-gray-500', 'text-green-500');
+            });
+
             supabase.auth.getSession().then(({ data: { session } }) => {
-                if(session) handleSession(session.user);
-                else showView('auth');
+                if(session) handleSession(session.user); else showView('auth');
             });
-
-            supabase.auth.onAuthStateChange((_event, session) => {
-                if (session) handleSession(session.user);
-                else { currentUser = null; showView('auth'); }
+            supabase.auth.onAuthStateChange((_e, session) => {
+                if (session) handleSession(session.user); else { currentUser = null; showView('auth'); }
             });
-
-            // Responsive Resize Handler
+            
             window.addEventListener('resize', () => {
-                if(window.innerWidth >= 768) {
-                    getEl('sidebar').classList.remove('open');
-                    getEl('overlay').classList.remove('visible');
-                    // Reset desktop view logic
-                    if(currentRoomId) {
-                         getEl('room-list-panel').classList.add('hidden'); // Hide room list on desktop if chat open? No, usually split view.
-                         // Actually for this specific single-file design, let's keep the mobile-style switching logic but adapted
-                         // If desktop, we might want split view. But sticking to "One Active Panel" for Main Area is safer for this specific code structure
-                    }
-                }
+                if(window.innerWidth >= 768) { getEl('sidebar').classList.remove('open'); getEl('overlay').classList.remove('visible'); }
             });
         }
 
         async function handleSession(user) {
             currentUser = user;
             showView('app');
-            loadProfile();
+            
+            const { data } = await supabase.from('profiles').select('*').eq('id', currentUser.id).single();
+            if(data) {
+                profileCache[currentUser.id] = data;
+                updateMyProfileUI(data);
+            }
             initializeRealtime();
         }
 
-        // --- UI MANAGERS ---
+        function updateMyProfileUI(data) {
+            getEl('my-avatar').src = data.avatar;
+            getEl('my-name').textContent = data.username;
+            getEl('edit-username').value = data.username;
+            getEl('edit-bio').value = data.bio || '';
+            getEl('edit-avatar-preview').src = data.avatar;
+        }
+
         const getEl = (id) => document.getElementById(id);
-        
         function showView(name) {
             ['auth-view', 'app-view'].forEach(id => getEl(id).classList.add('hidden'));
             getEl(name + '-view').classList.remove('hidden');
         }
-
         function toggleSidebar(show) {
-            const sb = getEl('sidebar');
-            const ov = getEl('overlay');
-            if(show) {
-                sb.classList.add('open');
-                ov.classList.add('visible');
-            } else {
-                sb.classList.remove('open');
-                ov.classList.remove('visible');
-            }
+            const sb = getEl('sidebar'), ov = getEl('overlay');
+            show ? (sb.classList.add('open'), ov.classList.add('visible')) : (sb.classList.remove('open'), ov.classList.remove('visible'));
         }
-
+        
         function switchPanel(panelId) {
-            // Logic works for both Mobile (Full switch) and Desktop (Main content switch)
-            // On Desktop, Sidebar is always visible, so we only switch the 'main-area' content
-            
-            if (window.innerWidth < 768) {
-                toggleSidebar(false);
-            }
-
+            if (window.innerWidth < 768) toggleSidebar(false);
             ['room-list-panel', 'chat-interface', 'profile-panel'].forEach(p => getEl(p).classList.add('hidden'));
-            getEl(panelId).classList.remove('hidden');
+            const panel = getEl(panelId);
+            panel.classList.remove('hidden');
+            if(panelId === 'chat-interface') {
+                const box = getEl('msg-box');
+                box.scrollTop = box.scrollHeight;
+            }
         }
 
         function goBack() {
-            // If on mobile and deep in chat/profile, go back to room list
-            // If on desktop, logic might differ, but going to room list is safe default
-            if(currentRoomId) {
-                currentRoomId = null; // Reset room selection
-                if(messageSubscription) supabase.removeChannel(messageSubscription);
-            }
+            if(currentRoomId) { currentRoomId = null; if(messageSubscription) supabase.removeChannel(messageSubscription); }
             switchPanel('room-list-panel');
-        }
-
-        // --- DATA ---
-        async function loadProfile() {
-            const { data } = await supabase.from('profiles').select('*').eq('id', currentUser.id).single();
-            if(data) {
-                getEl('my-avatar').src = data.avatar;
-                getEl('my-name').textContent = data.username;
-                getEl('edit-username').value = data.username;
-                getEl('edit-bio').value = data.bio || '';
-                getEl('edit-avatar-preview').src = data.avatar;
-            }
         }
 
         function initializeRealtime() {
             fetchRooms(); fetchUsers();
             supabase.channel('public:rooms').on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, fetchRooms).subscribe();
-            supabase.channel('public:profiles').on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, fetchUsers).subscribe();
+            supabase.channel('public:profiles').on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, payload => {
+                fetchUsers();
+                if(payload.new && payload.new.id) profileCache[payload.new.id] = payload.new;
+            }).subscribe();
         }
 
         async function fetchRooms() {
             const { data } = await supabase.from('rooms').select('*').order('created_at', { ascending: false });
             const grid = getEl('room-grid');
             grid.innerHTML = '';
-            
-            if(data && data.length > 0) {
-                data.forEach(r => {
-                    const div = document.createElement('div');
-                    div.className = 'p-5 bg-[#27272a] border border-[#3f3f46] hover:border-emerald-500 cursor-pointer rounded-xl transition group relative flex flex-col h-full justify-between shadow-sm hover:shadow-md';
-                    div.innerHTML = `
-                        <div>
-                            <div class="flex justify-between items-start">
-                                <div class="font-bold text-emerald-400 text-lg truncate pr-2"># ${r.name}</div>
-                                ${r.created_by === currentUser.id ? `<button onclick="event.stopPropagation(); deleteRoom('${r.id}')" class="text-gray-500 hover:text-red-500 transition"><i class="fas fa-trash-alt"></i></button>` : ''}
-                            </div>
-                            <div class="text-xs text-gray-500 mt-1 font-mono">Public Frequency</div>
-                        </div>
-                        <div class="mt-4 flex items-center text-xs text-gray-400 gap-2">
-                            <span class="bg-[#18181b] px-2 py-1 rounded">OPEN</span>
-                        </div>
-                    `;
-                    div.onclick = () => openRoom(r.id, r.name);
-                    grid.appendChild(div);
-                });
-            } else {
-                grid.innerHTML = `
-                    <div class="col-span-full flex flex-col items-center justify-center text-gray-500 py-10 opacity-50">
-                        <i class="fas fa-satellite-dish text-4xl mb-4"></i>
-                        <p>No signals detected.</p>
-                        <p class="text-xs mt-2">Create a new frequency to begin.</p>
-                    </div>`;
-            }
+            if(data?.length) data.forEach(renderRoomCard);
+            else grid.innerHTML = `<div class="col-span-full text-center text-gray-500 py-10 opacity-50">No channels.<br>Create one to start.</div>`;
+        }
+
+        function renderRoomCard(r) {
+            const grid = getEl('room-grid');
+            const div = document.createElement('div');
+            div.className = 'p-4 bg-[#27272a] border border-[#3f3f46] hover:border-emerald-500 cursor-pointer rounded-lg transition flex flex-col justify-between h-28 shadow-sm';
+            div.innerHTML = `
+                <div class="flex justify-between items-start">
+                    <div class="font-bold text-emerald-400 text-lg truncate pr-2"># ${r.name}</div>
+                    ${r.created_by === currentUser.id ? `<button onclick="event.stopPropagation(); deleteRoom('${r.id}')" class="text-gray-500 hover:text-red-500 transition"><i class="fas fa-trash-alt"></i></button>` : ''}
+                </div>
+                <div class="flex justify-between items-end">
+                    <div class="text-[10px] text-gray-500 bg-[#18181b] px-2 py-1 rounded font-mono">OPEN</div>
+                </div>
+            `;
+            div.onclick = () => openRoom(r.id, r.name);
+            grid.appendChild(div);
         }
 
         async function fetchUsers() {
@@ -203,51 +167,49 @@
             const list = getEl('user-list');
             list.innerHTML = '';
             data?.forEach(u => {
+                profileCache[u.id] = u; 
                 if(u.id === currentUser.id) return;
                 const div = document.createElement('div');
-                div.className = 'p-3 hover:bg-[#27272a] cursor-pointer flex items-center gap-3 rounded-lg transition mb-1';
+                div.className = 'p-2 hover:bg-[#27272a] cursor-pointer flex items-center gap-3 rounded-lg transition mb-1';
                 div.innerHTML = `
-                    <div class="relative flex-shrink-0">
-                        <img src="${u.avatar}" class="w-10 h-10 rounded-full bg-gray-700 object-cover">
-                        <div class="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[#18181b] ${u.status === 'online' ? 'bg-green-500' : 'bg-gray-500'}"></div>
-                    </div>
-                    <div class="min-w-0">
-                        <div class="text-sm font-bold text-gray-200 truncate">${u.username}</div>
-                        <div class="text-[10px] text-gray-500 truncate font-mono">${u.status === 'online' ? 'ONLINE' : 'OFFLINE'}</div>
-                    </div>
+                    <div class="relative flex-shrink-0"><img src="${u.avatar}" class="w-8 h-8 rounded-full bg-gray-700 object-cover"><div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-[#18181b] ${u.status === 'online' ? 'bg-green-500' : 'bg-gray-500'}"></div></div>
+                    <div class="min-w-0 overflow-hidden"><div class="text-sm font-bold text-gray-200 truncate">${u.username}</div></div>
                 `;
                 div.onclick = () => startDM(u);
                 list.appendChild(div);
             });
         }
 
-        // --- CHAT ---
         async function openRoom(id, name) {
             currentRoomId = id;
             getEl('chat-header-name').textContent = name;
             switchPanel('chat-interface');
             
             const box = getEl('msg-box');
-            box.innerHTML = '<div class="flex justify-center mt-20"><i class="fas fa-circle-notch fa-spin text-emerald-500 text-3xl"></i></div>';
-
-            const { data } = await supabase.from('messages').select('*, profiles(username, avatar)').eq('room_id', id).order('created_at');
-            box.innerHTML = '';
-            if(data && data.length > 0) {
+            box.innerHTML = '<div class="flex justify-center mt-20"><i class="fas fa-circle-notch fa-spin text-emerald-500 text-2xl"></i></div>';
+            
+            // Explicitly check if room_id is treated as text
+            const { data, error } = await supabase.from('messages').select('*').eq('room_id', id).order('created_at');
+            
+            if(error) {
+                box.innerHTML = `<div class="text-red-500 text-center mt-10 p-4">Error fetching messages: ${error.message}</div>`;
+                return;
+            }
+            
+            box.innerHTML = ''; 
+            if(data?.length) {
                 data.forEach(m => renderMessage(m));
             } else {
-                box.innerHTML = '<div class="text-center text-gray-600 mt-10 text-sm font-mono">Encrypted channel established.<br>Start transmission.</div>';
+                box.innerHTML = '<div id="empty-msg" class="flex flex-col items-center justify-center h-full text-gray-600 pb-20"><i class="fas fa-satellite-dish text-4xl mb-4 opacity-20"></i><p class="text-sm font-mono">Ready to transmit.</p></div>';
             }
             box.scrollTop = box.scrollHeight;
 
             if(messageSubscription) supabase.removeChannel(messageSubscription);
             messageSubscription = supabase.channel(`room:${id}`)
                 .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `room_id=eq.${id}` }, payload => {
-                    // If it's the first message, clear the placeholder
-                    if(box.children.length === 1 && box.children[0].classList.contains('text-center')) box.innerHTML = '';
-                    
-                    supabase.from('profiles').select('username, avatar').eq('id', payload.new.sender_id).single().then(({data}) => {
-                        renderMessage({ ...payload.new, profiles: data }, true);
-                    });
+                    if(document.getElementById(`msg-${payload.new.id}`)) return; 
+                    const empty = getEl('empty-msg'); if(empty) empty.remove();
+                    renderMessage(payload.new, true);
                 })
                 .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, payload => {
                     const el = document.getElementById(`msg-${payload.old.id}`);
@@ -256,19 +218,34 @@
                 .subscribe();
         }
 
-        function renderMessage(m, scroll = false) {
+        function renderMessage(m, scroll = false, isOptimistic = false) {
             const box = getEl('msg-box');
             const isMe = m.sender_id === currentUser.id;
+            const profile = profileCache[m.sender_id] || { username: '...', avatar: '' }; 
+            
+            if(profile.username === '...') {
+                supabase.from('profiles').select('*').eq('id', m.sender_id).single().then(({data}) => {
+                    if(data) {
+                        profileCache[data.id] = data;
+                        const nameEl = document.getElementById(`name-${m.id}`);
+                        const imgEl = document.getElementById(`img-${m.id}`);
+                        if(nameEl) nameEl.textContent = data.username;
+                        if(imgEl) imgEl.src = data.avatar;
+                    }
+                });
+            }
+
             const div = document.createElement('div');
             div.id = `msg-${m.id}`;
-            div.className = `msg-row ${isMe ? 'justify-end' : 'justify-start'}`;
+            div.className = `msg-row ${isMe ? 'justify-end' : 'justify-start'} ${isOptimistic ? 'msg-pending' : ''}`;
+            
             div.innerHTML = `
-                ${!isMe ? `<img src="${m.profiles?.avatar}" class="w-8 h-8 rounded-full mr-2 mt-1 self-end flex-shrink-0 border border-gray-700">` : ''}
+                ${!isMe ? `<img id="img-${m.id}" src="${profile.avatar}" class="w-8 h-8 rounded-full mr-2 mt-1 self-end flex-shrink-0 border border-gray-700 cursor-pointer">` : ''}
                 <div class="msg-bubble ${isMe ? 'msg-mine' : 'msg-theirs'} group">
-                    ${!isMe ? `<div class="text-[10px] text-emerald-500 font-bold mb-1">${m.profiles?.username}</div>` : ''}
+                    ${!isMe ? `<div id="name-${m.id}" class="text-[10px] text-emerald-500 font-bold mb-1 cursor-pointer opacity-80 hover:opacity-100">${profile.username}</div>` : ''}
                     <div class="break-words">${m.text}</div>
-                    <div class="text-[9px] opacity-50 text-right mt-1 font-mono">${new Date(m.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
-                    ${isMe ? `<div class="msg-actions"><button onclick="deleteMessage('${m.id}')" class="bg-[#09090b] rounded-full w-8 h-8 flex items-center justify-center text-red-500 border border-red-900 shadow-lg hover:bg-red-900 hover:text-white transition"><i class="fas fa-trash-alt"></i></button></div>` : ''}
+                    <div class="text-[9px] opacity-40 text-right mt-1 font-mono select-none">${new Date(m.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
+                    ${isMe && !isOptimistic ? `<div class="msg-actions"><button onclick="deleteMessage('${m.id}')" class="bg-[#09090b] rounded-full w-8 h-8 flex items-center justify-center text-red-500 border border-red-900 shadow-lg hover:bg-red-900 hover:text-white transition"><i class="fas fa-trash-alt"></i></button></div>` : ''}
                 </div>
             `;
             box.appendChild(div);
@@ -277,50 +254,75 @@
 
         async function sendMsg() {
             const inp = getEl('msg-inp');
-            if(!inp.value.trim() || !currentRoomId) return;
             const text = inp.value.trim();
+            if(!text || !currentRoomId) return;
+            
+            const tempId = 'temp-' + Date.now();
+            renderMessage({ id: tempId, room_id: currentRoomId, text: text, sender_id: currentUser.id, created_at: new Date().toISOString() }, true, true);
+            
             inp.value = '';
-            inp.focus(); // Keep focus for rapid typing
-            await supabase.from('messages').insert({ room_id: currentRoomId, text: text, sender_id: currentUser.id });
+            inp.focus();
+            const empty = getEl('empty-msg'); if(empty) empty.remove();
+
+            // SEND TO SUPABASE with detailed error logging
+            const { data, error } = await supabase.from('messages').insert({ room_id: currentRoomId, text: text, sender_id: currentUser.id }).select().single();
+
+            if(error) {
+                const el = document.getElementById(`msg-${tempId}`);
+                if(el) { el.style.border = "1px solid red"; el.title = error.message; }
+                alert("Message Failed to Save: " + error.message + "\n\nCheck if 'room_id' column in Supabase is type TEXT (not UUID).");
+                return;
+            }
+
+            // Success
+            const el = document.getElementById(`msg-${tempId}`);
+            if(el && data) {
+                el.id = `msg-${data.id}`;
+                el.classList.remove('msg-pending');
+                const bubble = el.querySelector('.msg-bubble');
+                if(bubble) bubble.insertAdjacentHTML('beforeend', `<div class="msg-actions"><button onclick="deleteMessage('${data.id}')" class="bg-[#09090b] rounded-full w-8 h-8 flex items-center justify-center text-red-500 border border-red-900 shadow-lg hover:bg-red-900 hover:text-white transition"><i class="fas fa-trash-alt"></i></button></div>`);
+            }
         }
 
         async function deleteMessage(id) {
-            if(confirm("Delete this transmission?")) await supabase.from('messages').delete().eq('id', id);
+            if(!confirm("Are you sure you want to delete this message?")) return;
+            
+            const el = document.getElementById(`msg-${id}`);
+            if(el) el.style.opacity = '0.3';
+            const { error } = await supabase.from('messages').delete().eq('id', id);
+            if(error && el) {
+                el.style.opacity = '1';
+                alert("Delete Failed: " + error.message);
+            }
         }
 
         async function createRoom() {
             const name = prompt("Frequency Name:");
             if(name) await supabase.from('rooms').insert({ name, created_by: currentUser.id });
         }
-        
         async function deleteRoom(id) {
             if(confirm("Terminate this frequency?")) await supabase.from('rooms').delete().eq('id', id);
         }
-
         function startDM(user) {
             const ids = [currentUser.id, user.id].sort();
             openRoom(`${ids[0]}_${ids[1]}`, `@${user.username}`);
         }
-
         async function updateProfile() {
             const updates = { username: getEl('edit-username').value, bio: getEl('edit-bio').value, updated_at: new Date() };
             await supabase.from('profiles').update(updates).eq('id', currentUser.id);
             alert("Identity Updated!"); loadProfile(); goBack();
         }
 
-        // --- AUTH ---
         async function handleLogin() {
-            const btn = getEl('btn-login');
-            btn.textContent = "Authenticating...";
+            const btn = getEl('btn-login'); btn.textContent = "Authenticating...";
             const { error } = await supabase.auth.signInWithPassword({ email: getEl('l-email').value, password: getEl('l-pass').value });
-            btn.textContent = "LOGIN";
+            btn.textContent = "ESTABLISH LINK";
             if(error) alert(error.message);
         }
         async function handleSignup() {
-            const btn = getEl('btn-signup');
-            btn.textContent = "Processing...";
+            const btn = getEl('btn-signup'); btn.textContent = "Processing...";
             const { data, error } = await supabase.auth.signUp({ email: getEl('s-email').value, password: getEl('s-pass').value });
-            btn.textContent = "SIGN UP";
+            btn.textContent = "REGISTER";
             if(error) return alert(error.message);
             if(data.user) {
                 await supabase.from('profiles').insert({ id: data.user.id, username: getEl('s-user').value, email: getEl('s-email').value, avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${data.user.id}`, status: 'online' });
@@ -333,131 +335,95 @@
     </script>
 </head>
 <body>
-    <!-- MOBILE OVERLAY -->
+    <!-- OVERLAY -->
     <div id="overlay" class="overlay" onclick="toggleSidebar(false)"></div>
 
-    <!-- AUTH VIEW -->
+    <!-- AUTH -->
     <div id="auth-view" class="flex items-center justify-center hidden w-full h-full p-4">
         <div class="glass-card text-center">
             <h1 class="text-5xl text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-500 font-black mb-2 tracking-tighter">NEXUS</h1>
-            <p class="text-gray-500 text-xs mb-8 font-mono tracking-[0.3em]">SECURE RELAY SYSTEM</p>
-            
+            <p class="text-gray-500 text-xs mb-8 font-mono tracking-[0.3em]">DEBUG EDITION</p>
             <div id="f-login" class="space-y-4">
                 <input id="l-email" type="email" class="input-field" placeholder="Access ID (Email)">
                 <input id="l-pass" type="password" class="input-field" placeholder="Passphrase">
                 <button id="btn-login" onclick="handleLogin()" class="btn">ESTABLISH LINK</button>
-                <p onclick="getEl('f-login').classList.add('hidden'); getEl('f-signup').classList.remove('hidden')" class="text-xs mt-6 cursor-pointer text-gray-500 hover:text-white transition">GENERATE NEW IDENTITY</p>
+                <p onclick="getEl('f-login').classList.add('hidden'); getEl('f-signup').classList.remove('hidden')" class="text-xs mt-6 cursor-pointer text-gray-500 hover:text-white">GENERATE NEW IDENTITY</p>
             </div>
             <div id="f-signup" class="hidden space-y-4">
                 <input id="s-user" type="text" class="input-field" placeholder="Alias (Username)">
                 <input id="s-email" type="email" class="input-field" placeholder="Email">
                 <input id="s-pass" type="password" class="input-field" placeholder="Password">
                 <button id="btn-signup" onclick="handleSignup()" class="btn">REGISTER</button>
-                <p onclick="getEl('f-signup').classList.add('hidden'); getEl('f-login').classList.remove('hidden')" class="text-xs mt-6 cursor-pointer text-gray-500 hover:text-white transition">ABORT</p>
+                <p onclick="getEl('f-signup').classList.add('hidden'); getEl('f-login').classList.remove('hidden')" class="text-xs mt-6 cursor-pointer text-gray-500 hover:text-white">ABORT</p>
             </div>
         </div>
     </div>
 
-    <!-- APP VIEW -->
+    <!-- APP -->
     <div id="app-view" class="hidden h-full w-full">
         <div class="app-container">
-            
             <!-- SIDEBAR -->
             <div id="sidebar" class="sidebar p-4">
-                <!-- Sidebar Header -->
-                <div class="flex items-center gap-3 mb-8 pb-4 border-b border-[#27272a] cursor-pointer active:bg-[#27272a] p-2 rounded-xl transition" onclick="switchPanel('profile-panel')">
+                <div class="flex items-center gap-3 mb-8 pb-4 border-b border-[#27272a] cursor-pointer active:bg-[#27272a] p-2 rounded-xl" onclick="switchPanel('profile-panel')">
                     <img id="my-avatar" class="w-12 h-12 rounded-xl border-2 border-emerald-500 bg-gray-800">
                     <div class="flex-1 overflow-hidden">
                         <div class="font-bold text-emerald-400 truncate text-lg" id="my-name">...</div>
-                        <div class="text-[10px] text-gray-500 font-mono tracking-wider">STATUS: SECURE</div>
+                        <div class="text-[10px] font-mono flex items-center gap-2 text-gray-500">
+                            STATUS: <span id="status-indicator" class="text-gray-500">●</span> SECURE
+                        </div>
                     </div>
-                    <button onclick="event.stopPropagation(); handleLogout()" class="text-gray-600 hover:text-red-500 transition p-2"><i class="fas fa-power-off"></i></button>
+                    <button onclick="event.stopPropagation(); handleLogout()" class="text-gray-600 hover:text-red-500 p-2"><i class="fas fa-power-off"></i></button>
                 </div>
-                
-                <!-- Nav -->
                 <div class="space-y-1 mb-6">
-                    <button onclick="switchPanel('room-list-panel')" class="w-full text-left p-3 text-sm font-bold text-gray-300 hover:bg-[#27272a] rounded-lg flex items-center gap-3 transition"><i class="fas fa-hashtag w-5 text-center text-emerald-500"></i> CHANNELS</button>
-                    <button onclick="switchPanel('profile-panel')" class="w-full text-left p-3 text-sm font-bold text-gray-300 hover:bg-[#27272a] rounded-lg flex items-center gap-3 transition"><i class="fas fa-cog w-5 text-center text-emerald-500"></i> SETTINGS</button>
+                    <button onclick="switchPanel('room-list-panel')" class="w-full text-left p-3 text-sm font-bold text-gray-300 hover:bg-[#27272a] rounded-lg flex items-center gap-3"><i class="fas fa-hashtag w-5 text-center text-emerald-500"></i> CHANNELS</button>
+                    <button onclick="switchPanel('profile-panel')" class="w-full text-left p-3 text-sm font-bold text-gray-300 hover:bg-[#27272a] rounded-lg flex items-center gap-3"><i class="fas fa-cog w-5 text-center text-emerald-500"></i> SETTINGS</button>
                 </div>
-
                 <div class="text-[10px] font-bold text-gray-600 mb-3 px-2 tracking-widest font-mono">ACTIVE NODES</div>
-                <div id="user-list" class="flex-1 overflow-y-auto custom-scrollbar pr-1"></div>
+                <div id="user-list" class="flex-1 overflow-y-auto pr-1"></div>
             </div>
 
-            <!-- MAIN AREA -->
+            <!-- MAIN -->
             <div class="main-area">
-                
-                <!-- Mobile Header (Only visible on small screens) -->
                 <div class="md:hidden h-16 border-b border-[#27272a] flex items-center justify-between px-4 bg-[#09090b] z-20 flex-shrink-0">
                     <button onclick="toggleSidebar(true)" class="text-emerald-500 text-xl p-2"><i class="fas fa-bars"></i></button>
                     <span class="font-bold text-xl tracking-tight text-emerald-500 font-mono">NEXUS</span>
-                    <div class="w-8"></div> <!-- Spacer -->
+                    <div class="w-8"></div>
                 </div>
 
-                <!-- PANEL 1: ROOM LIST -->
                 <div id="room-list-panel" class="p-4 md:p-8 flex-1 overflow-y-auto w-full">
                     <div class="flex justify-between items-center mb-6">
-                        <div>
-                            <h2 class="text-2xl md:text-3xl font-black text-white">CHANNELS</h2>
-                            <p class="text-gray-500 text-xs md:text-sm mt-1">Select a frequency to monitor</p>
-                        </div>
-                        <button onclick="createRoom()" class="bg-[#27272a] text-emerald-400 px-4 md:px-6 py-2 md:py-3 rounded-lg text-sm font-bold border border-emerald-900/30 hover:border-emerald-500 transition shadow-lg">+ NEW</button>
+                        <div><h2 class="text-2xl md:text-3xl font-black text-white">CHANNELS</h2><p class="text-gray-500 text-xs md:text-sm mt-1">Select a frequency</p></div>
+                        <button onclick="createRoom()" class="bg-[#27272a] text-emerald-400 px-4 md:px-6 py-2 md:py-3 rounded-lg text-sm font-bold border border-emerald-900/30 hover:border-emerald-500 shadow-lg">+ NEW</button>
                     </div>
-                    
-                    <!-- Responsive Grid: 1 col mobile, 2 col tablet, 3 col desktop, 4 col wide -->
                     <div id="room-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"></div>
                 </div>
 
-                <!-- PANEL 2: CHAT INTERFACE -->
-                <div id="chat-interface" class="absolute inset-0 bg-[#09090b] flex flex-col hidden z-30 md:static md:z-0 md:flex md:hidden">
-                    <!-- Desktop Header is hidden on mobile (handled by mobile header or back button) -->
+                <div id="chat-interface" class="absolute inset-0 bg-[#09090b] flex flex-col hidden z-30">
                     <div class="h-16 border-b border-[#27272a] flex items-center justify-between px-4 bg-[#18181b] flex-shrink-0">
-                        <button onclick="goBack()" class="text-gray-400 md:hidden mr-3 p-2 hover:text-white"><i class="fas fa-arrow-left text-lg"></i></button>
-                        <div class="font-bold text-lg flex items-center gap-2 truncate flex-1">
-                            <span class="text-emerald-500">#</span> 
-                            <span id="chat-header-name" class="truncate">Room</span>
-                        </div>
-                        <div class="flex gap-4 text-gray-500 text-lg">
-                           <i class="fas fa-search hover:text-white cursor-pointer"></i>
-                        </div>
+                        <button onclick="goBack()" class="text-gray-400 md:hidden mr-3 p-2"><i class="fas fa-arrow-left text-lg"></i></button>
+                        <div class="font-bold text-lg flex items-center gap-2 truncate flex-1"><span class="text-emerald-500">#</span> <span id="chat-header-name" class="truncate">Room</span></div>
+                        <div class="flex gap-4 text-gray-500 text-lg"><i class="fas fa-search cursor-pointer"></i></div>
                     </div>
-                    
-                    <div id="msg-box" class="flex-1 overflow-y-auto p-4 w-full custom-scrollbar"></div>
-                    
+                    <div id="msg-box" class="flex-1 overflow-y-auto p-4 w-full"></div>
                     <div class="p-3 md:p-4 border-t border-[#27272a] bg-[#18181b] flex gap-2 flex-shrink-0 items-center">
                         <button class="text-gray-500 hover:text-emerald-500 p-2"><i class="fas fa-paperclip"></i></button>
                         <input id="msg-inp" type="text" class="flex-1 bg-[#27272a] border-none text-white rounded-lg px-4 py-3 focus:ring-1 focus:ring-emerald-500 outline-none transition" placeholder="Encrypting message..." onkeypress="if(event.key==='Enter') sendMsg()">
-                        <button onclick="sendMsg()" class="bg-emerald-600 hover:bg-emerald-500 text-white w-12 h-12 rounded-lg flex items-center justify-center shadow-lg transition transform hover:scale-105"><i class="fas fa-paper-plane"></i></button>
+                        <button onclick="sendMsg()" class="bg-emerald-600 hover:bg-emerald-500 text-white w-12 h-12 rounded-lg flex items-center justify-center shadow-lg"><i class="fas fa-paper-plane"></i></button>
                     </div>
                 </div>
 
-                <!-- PANEL 3: PROFILE -->
                 <div id="profile-panel" class="absolute inset-0 bg-[#09090b] flex flex-col items-center justify-center hidden z-40 w-full h-full">
                     <div class="glass-card w-full max-w-lg p-8 relative">
                         <button onclick="goBack()" class="absolute top-4 right-4 text-gray-400 hover:text-white p-2"><i class="fas fa-times text-xl"></i></button>
                         <h2 class="text-2xl font-bold text-white mb-8 text-center tracking-wide">EDIT IDENTITY</h2>
-                        
-                        <div class="flex justify-center mb-8">
-                            <div class="relative">
-                                <img id="edit-avatar-preview" src="" class="w-24 h-24 rounded-2xl border-2 border-emerald-500 shadow-[0_0_30px_rgba(16,185,129,0.3)]">
-                                <div class="absolute -bottom-2 -right-2 bg-[#18181b] p-2 rounded-full border border-[#3f3f46] text-gray-400 text-xs"><i class="fas fa-camera"></i></div>
-                            </div>
-                        </div>
-                        
+                        <div class="flex justify-center mb-8"><div class="relative"><img id="edit-avatar-preview" src="" class="w-24 h-24 rounded-2xl border-2 border-emerald-500 shadow-[0_0_30px_rgba(16,185,129,0.3)]"></div></div>
                         <div class="space-y-5">
-                            <div>
-                                <label class="text-xs font-bold text-gray-500 ml-1 mb-1 block">DISPLAY NAME</label>
-                                <input id="edit-username" type="text" class="input-field" placeholder="Display Name">
-                            </div>
-                            <div>
-                                <label class="text-xs font-bold text-gray-500 ml-1 mb-1 block">BIO DATA</label>
-                                <textarea id="edit-bio" rows="3" class="input-field resize-none" placeholder="Status..."></textarea>
-                            </div>
+                            <div><label class="text-xs font-bold text-gray-500 ml-1 mb-1 block">DISPLAY NAME</label><input id="edit-username" type="text" class="input-field"></div>
+                            <div><label class="text-xs font-bold text-gray-500 ml-1 mb-1 block">BIO DATA</label><textarea id="edit-bio" rows="3" class="input-field resize-none"></textarea></div>
                             <button onclick="updateProfile()" class="btn shadow-lg shadow-emerald-900/20">SAVE CHANGES</button>
                         </div>
                     </div>
                 </div>
-
             </div>
         </div>
     </div>
