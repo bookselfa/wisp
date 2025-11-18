@@ -47,6 +47,11 @@
             .msg-bubble { max-width: 85%; }
         }
         @media (min-width: 769px) { .overlay { display: none; } .msg-bubble { max-width: 60%; } }
+
+        /* Nearby modal */
+        .nearby-modal { position: fixed; inset: 12% 12% 12% 12%; background: #0b1220; border: 1px solid #28323a; border-radius: 12px; padding: 16px; z-index: 60; overflow:auto; }
+        .nearby-item { display:flex; gap:12px; align-items:center; padding:8px; border-radius:8px; cursor:pointer; }
+        .nearby-item:hover { background: rgba(255,255,255,0.02); }
     </style>
 
     <script src="https://cdn.tailwindcss.com"></script>
@@ -60,14 +65,27 @@
 
         let supabase, currentUser = null, currentRoomId = null, messageSubscription = null;
         const profileCache = {}; 
+        const NEARBY_RADIUS_KM = 10; // user selected: 10 km
+
+        // helper: sha256 of text -> hex
+        async function sha256Hex(message) {
+            const enc = new TextEncoder();
+            const data = enc.encode(message);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return hashArray.map(b => b.toString(16).padStart(2,'0')).join('');
+        }
 
         function initApp() {
             supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
             
             // Connection Check
-            supabase.from('rooms').select('count', { count: 'exact', head: true }).then(({ error }) => {
+            supabase.from('rooms').select('id', { count: 'exact', head: true }).then(({ error }) => {
                 if(error) console.error('DB Error:', error);
-                else document.getElementById('status-indicator').classList.replace('text-gray-500', 'text-green-500');
+                else {
+                    const el = document.getElementById('status-indicator');
+                    if(el) el.classList.replace('text-gray-500', 'text-green-500');
+                }
             });
 
             supabase.auth.getSession().then(({ data: { session } }) => {
@@ -86,20 +104,49 @@
             currentUser = user;
             showView('app');
             
+            // load profile
             const { data } = await supabase.from('profiles').select('*').eq('id', currentUser.id).single();
             if(data) {
                 profileCache[currentUser.id] = data;
                 updateMyProfileUI(data);
+            } else {
+                // create a minimal profile if none exists
+                const avatar = `https://api.dicebear.com/7.x/bottts/svg?seed=${currentUser.id}`;
+                await supabase.from('profiles').insert({ id: currentUser.id, username: 'anon-'+currentUser.id.slice(0,6), email: currentUser.email || null, avatar, status: 'online' });
+                const { data: newp } = await supabase.from('profiles').select('*').eq('id', currentUser.id).single();
+                if(newp) { profileCache[currentUser.id] = newp; updateMyProfileUI(newp); }
             }
+
+            // attempt to set geolocation (optional)
+            try {
+                if(navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(async pos => {
+                        const { latitude, longitude } = pos.coords;
+                        // update profile lat/lon
+                        await supabase.from('profiles').update({ lat: latitude, lon: longitude, updated_at: new Date() }).eq('id', currentUser.id);
+                        // update cache
+                        profileCache[currentUser.id] = {...profileCache[currentUser.id], lat: latitude, lon: longitude};
+                    }, err => {
+                        // user denied or unavailable - ignore
+                        console.warn('Geolocation not available:', err && err.message);
+                    }, { enableHighAccuracy: false, maximumAge: 60_000, timeout: 5_000 });
+                }
+            } catch(e){ console.warn(e); }
+
             initializeRealtime();
         }
 
         function updateMyProfileUI(data) {
-            getEl('my-avatar').src = data.avatar;
-            getEl('my-name').textContent = data.username;
-            getEl('edit-username').value = data.username;
-            getEl('edit-bio').value = data.bio || '';
-            getEl('edit-avatar-preview').src = data.avatar;
+            const avatarEl = getEl('my-avatar');
+            if(avatarEl) avatarEl.src = data.avatar || '';
+            const nameEl = getEl('my-name');
+            if(nameEl) nameEl.textContent = data.username || '...';
+            const editName = getEl('edit-username');
+            if(editName) editName.value = data.username || '';
+            const editBio = getEl('edit-bio');
+            if(editBio) editBio.value = data.bio || '';
+            const preview = getEl('edit-avatar-preview');
+            if(preview) preview.src = data.avatar || '';
         }
 
         const getEl = (id) => document.getElementById(id);
@@ -149,13 +196,15 @@
             const grid = getEl('room-grid');
             const div = document.createElement('div');
             div.className = 'p-4 bg-[#27272a] border border-[#3f3f46] hover:border-emerald-500 cursor-pointer rounded-lg transition flex flex-col justify-between h-28 shadow-sm';
+            // lock icon if room has password_hash
+            const lockHtml = r.password_hash ? `<i class="fas fa-lock text-yellow-400" title="Locked channel"></i>` : '';
             div.innerHTML = `
                 <div class="flex justify-between items-start">
                     <div class="font-bold text-emerald-400 text-lg truncate pr-2"># ${r.name}</div>
-                    ${r.created_by === currentUser.id ? `<button onclick="event.stopPropagation(); deleteRoom('${r.id}')" class="text-gray-500 hover:text-red-500 transition"><i class="fas fa-trash-alt"></i></button>` : ''}
+                    ${lockHtml}
                 </div>
                 <div class="flex justify-between items-end">
-                    <div class="text-[10px] text-gray-500 bg-[#18181b] px-2 py-1 rounded font-mono">OPEN</div>
+                    <div class="text-[10px] text-gray-500 bg-[#18181b] px-2 py-1 rounded font-mono">${r.created_by === currentUser.id ? 'OWN' : 'OPEN'}</div>
                 </div>
             `;
             div.onclick = () => openRoom(r.id, r.name);
@@ -180,7 +229,27 @@
             });
         }
 
+        // OPEN ROOM: first check for password_hash and validate
         async function openRoom(id, name) {
+            // get latest room doc (to check password_hash)
+            const { data: room, error: roomErr } = await supabase.from('rooms').select('*').eq('id', id).single();
+            if(roomErr || !room) {
+                alert('Room not found or error: ' + (roomErr?.message || 'unknown'));
+                return;
+            }
+
+            if(room.password_hash) {
+                // ask user for password
+                const input = prompt('This room is locked. Enter password to join:');
+                if(input === null) return; // cancelled
+                const hashed = await sha256Hex(input);
+                if(hashed !== room.password_hash) {
+                    alert('Incorrect password.');
+                    return;
+                }
+            }
+
+            // proceed to open room
             currentRoomId = id;
             getEl('chat-header-name').textContent = name;
             switchPanel('chat-interface');
@@ -188,7 +257,7 @@
             const box = getEl('msg-box');
             box.innerHTML = '<div class="flex justify-center mt-20"><i class="fas fa-circle-notch fa-spin text-emerald-500 text-2xl"></i></div>';
             
-            // Explicitly check if room_id is treated as text
+            // load messages
             const { data, error } = await supabase.from('messages').select('*').eq('room_id', id).order('created_at');
             
             if(error) {
@@ -264,7 +333,7 @@
             inp.focus();
             const empty = getEl('empty-msg'); if(empty) empty.remove();
 
-            // SEND TO SUPABASE with detailed error logging
+            // SEND TO SUPABASE
             const { data, error } = await supabase.from('messages').insert({ room_id: currentRoomId, text: text, sender_id: currentUser.id }).select().single();
 
             if(error) {
@@ -296,17 +365,29 @@
             }
         }
 
+        // CREATE ROOM with optional password (hashed SHA-256)
         async function createRoom() {
             const name = prompt("Frequency Name:");
-            if(name) await supabase.from('rooms').insert({ name, created_by: currentUser.id });
+            if(!name) return;
+            const pass = prompt("Set Password (leave empty for public room):");
+            let password_hash = null;
+            if(pass && pass.length > 0) {
+                password_hash = await sha256Hex(pass);
+            }
+            const { error } = await supabase.from('rooms').insert({ name, created_by: currentUser.id, password_hash, created_at: new Date() });
+            if(error) alert('Create room failed: ' + error.message);
+            else alert('Channel created.');
         }
+
         async function deleteRoom(id) {
             if(confirm("Terminate this frequency?")) await supabase.from('rooms').delete().eq('id', id);
         }
+
         function startDM(user) {
             const ids = [currentUser.id, user.id].sort();
             openRoom(`${ids[0]}_${ids[1]}`, `@${user.username}`);
         }
+
         async function updateProfile() {
             const updates = { username: getEl('edit-username').value, bio: getEl('edit-bio').value, updated_at: new Date() };
             await supabase.from('profiles').update(updates).eq('id', currentUser.id);
@@ -319,17 +400,101 @@
             btn.textContent = "ESTABLISH LINK";
             if(error) alert(error.message);
         }
+
         async function handleSignup() {
             const btn = getEl('btn-signup'); btn.textContent = "Processing...";
             const { data, error } = await supabase.auth.signUp({ email: getEl('s-email').value, password: getEl('s-pass').value });
             btn.textContent = "REGISTER";
             if(error) return alert(error.message);
             if(data.user) {
-                await supabase.from('profiles').insert({ id: data.user.id, username: getEl('s-user').value, email: getEl('s-email').value, avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${data.user.id}`, status: 'online' });
+                await supabase.from('profiles').insert({ id: data.user.id, username: getEl('s-user').value || ('anon-'+data.user.id.slice(0,6)), email: getEl('s-email').value, avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${data.user.id}`, status: 'online' });
                 alert("Identity Created. Please Login."); getEl('f-signup').classList.add('hidden'); getEl('f-login').classList.remove('hidden');
             }
         }
+
         async function handleLogout() { await supabase.auth.signOut(); window.location.reload(); }
+
+        /********** Nearby detection functions **********/
+        // Haversine distance in km
+        function haversineKm(lat1, lon1, lat2, lon2) {
+            const R = 6371; // km
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) *
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
+        async function findNearby(radiusKm = NEARBY_RADIUS_KM) {
+            if(!currentUser) return [];
+            const { data: me } = await supabase.from('profiles').select('lat,lon').eq('id', currentUser.id).single();
+            if(!me || me.lat == null || me.lon == null) {
+                alert('Your location not available. Allow location access in your browser and refresh (or update profile).');
+                return [];
+            }
+
+            const { data: users } = await supabase.from('profiles').select('*');
+            const nearby = [];
+            users.forEach(u => {
+                if(!u.lat || !u.lon) return;
+                if(u.id === currentUser.id) return;
+                const dist = haversineKm(me.lat, me.lon, u.lat, u.lon);
+                if(dist <= radiusKm) nearby.push({...u, distance_km: +(dist.toFixed(2))});
+            });
+
+            // sort by distance
+            nearby.sort((a,b) => a.distance_km - b.distance_km);
+            return nearby;
+        }
+
+        async function showNearby() {
+            const list = await findNearby();
+            // build modal
+            const existing = document.getElementById('nearby-modal');
+            if(existing) existing.remove();
+
+            const modal = document.createElement('div');
+            modal.id = 'nearby-modal';
+            modal.className = 'nearby-modal';
+            modal.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                <div style="font-weight:700">Nearby Users (within ${NEARBY_RADIUS_KM} km)</div>
+                <div><button onclick="document.getElementById('nearby-modal')?.remove()" class="btn" style="width:auto;padding:6px 10px;background:#1f2937;color:#fff;border-radius:8px">Close</button></div>
+            </div>
+            <div id="nearby-list">${list.length ? '' : '<div class="text-gray-500">No nearby users found.</div>'}</div>`;
+            document.body.appendChild(modal);
+
+            const container = document.getElementById('nearby-list');
+            list.forEach(u => {
+                const item = document.createElement('div');
+                item.className = 'nearby-item';
+                item.innerHTML = `<img src="${u.avatar}" class="w-10 h-10 rounded-lg object-cover border border-gray-700">
+                    <div style="flex:1">
+                      <div style="font-weight:700">${u.username} <span style="color:#94a3b8;font-size:12px">• ${u.distance_km} km</span></div>
+                      <div style="font-size:12px;color:#94a3b8">${u.bio ? u.bio.slice(0,80) : ''}</div>
+                    </div>
+                    <div style="display:flex;gap:8px">
+                      <button class="btn" style="width:auto;padding:6px 10px;background:transparent;color:#fff;border:1px solid rgba(255,255,255,0.04)" onclick="startDMFromNearby('${u.id}')">Message</button>
+                    </div>`;
+                item.onclick = () => startDM(u);
+                container.appendChild(item);
+            });
+        }
+
+        function startDMFromNearby(uid) {
+            const u = profileCache[uid];
+            if(u) startDM(u);
+            const modal = document.getElementById('nearby-modal'); if(modal) modal.remove();
+        }
+
+        /********** end nearby **********/
+
+        // utility: load profile (used after edit) - simple refresh
+        async function loadProfile() {
+            const { data } = await supabase.from('profiles').select('*').eq('id', currentUser.id).single();
+            if(data) { profileCache[currentUser.id] = data; updateMyProfileUI(data); }
+        }
 
         window.onload = initApp;
     </script>
@@ -374,10 +539,19 @@
                     </div>
                     <button onclick="event.stopPropagation(); handleLogout()" class="text-gray-600 hover:text-red-500 p-2"><i class="fas fa-power-off"></i></button>
                 </div>
-                <div class="space-y-1 mb-6">
+                <div class="space-y-1 mb-4">
                     <button onclick="switchPanel('room-list-panel')" class="w-full text-left p-3 text-sm font-bold text-gray-300 hover:bg-[#27272a] rounded-lg flex items-center gap-3"><i class="fas fa-hashtag w-5 text-center text-emerald-500"></i> CHANNELS</button>
                     <button onclick="switchPanel('profile-panel')" class="w-full text-left p-3 text-sm font-bold text-gray-300 hover:bg-[#27272a] rounded-lg flex items-center gap-3"><i class="fas fa-cog w-5 text-center text-emerald-500"></i> SETTINGS</button>
                 </div>
+
+                <!-- NEW Nearby button -->
+                <div class="mb-6">
+                    <button onclick="showNearby()" class="w-full text-left p-3 text-sm font-bold text-gray-300 hover:bg-[#27272a] rounded-lg flex items-center gap-3">
+                        <i class="fas fa-location-dot w-5 text-center text-emerald-500"></i> NEARBY
+                        <span style="margin-left:auto;color:#9ca3af;font-size:12px">within ${NEARBY_RADIUS_KM}km</span>
+                    </button>
+                </div>
+
                 <div class="text-[10px] font-bold text-gray-600 mb-3 px-2 tracking-widest font-mono">ACTIVE NODES</div>
                 <div id="user-list" class="flex-1 overflow-y-auto pr-1"></div>
             </div>
@@ -427,5 +601,6 @@
             </div>
         </div>
     </div>
+
 </body>
 </html>
