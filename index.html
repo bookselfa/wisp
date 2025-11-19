@@ -8,7 +8,7 @@
     <style>
         :root { --bg: #09090b; --panel: #18181b; --primary: #10b981; --text: #e4e4e7; --danger: #ef4444; }
         
-        body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Courier New', monospace; overflow: hidden; position: fixed; inset: 0; }
+        body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; overflow: hidden; position: fixed; inset: 0; }
         .hidden { display: none !important; }
         * { transition: background-color 0.2s, border-color 0.2s; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         
@@ -65,7 +65,7 @@
 
         let supabase, currentUser = null, currentRoomId = null, messageSubscription = null;
         const profileCache = {}; 
-        const NEARBY_RADIUS_KM = 10; // user selected: 10 km
+        const NEARBY_RADIUS_KM = 10; 
 
         // helper: sha256 of text -> hex
         async function sha256Hex(message) {
@@ -76,6 +76,74 @@
             return hashArray.map(b => b.toString(16).padStart(2,'0')).join('');
         }
 
+        function getEl(id) { return document.getElementById(id); }
+
+        // --- CUSTOM MODAL IMPLEMENTATION (Alert, Confirm, Prompt) ---
+        let confirmCallback = null;
+
+        function resetModal() {
+            getEl('modal-input').classList.add('hidden');
+            getEl('modal-input').value = '';
+            getEl('modal-cancel-btn').classList.add('hidden');
+            getEl('custom-modal-backdrop').classList.add('hidden');
+        }
+
+        function showCustomAlert(message, title = 'System Alert') {
+            resetModal();
+            getEl('modal-title').textContent = title;
+            getEl('modal-message').textContent = message;
+            getEl('modal-ok-btn').textContent = 'OK';
+            getEl('custom-modal-backdrop').classList.remove('hidden');
+            confirmCallback = null;
+        }
+
+        function showCustomConfirm(message, callback, title = 'Confirm Action', okText = 'Yes', cancelText = 'Cancel') {
+            resetModal();
+            getEl('modal-title').textContent = title;
+            getEl('modal-message').textContent = message;
+            getEl('modal-cancel-btn').classList.remove('hidden');
+            getEl('modal-ok-btn').textContent = okText;
+            getEl('modal-cancel-btn').textContent = cancelText;
+            getEl('custom-modal-backdrop').classList.remove('hidden');
+            confirmCallback = callback;
+        }
+
+        function showCustomPrompt(message, callback, title = 'Input Required', placeholder = '', isPassword = false) {
+            resetModal();
+            getEl('modal-title').textContent = title;
+            getEl('modal-message').textContent = message;
+            getEl('modal-cancel-btn').classList.remove('hidden');
+            getEl('modal-ok-btn').textContent = 'Submit';
+            
+            const input = getEl('modal-input');
+            input.classList.remove('hidden');
+            input.type = isPassword ? 'password' : 'text';
+            input.placeholder = placeholder;
+            getEl('custom-modal-backdrop').classList.remove('hidden');
+            
+            // Use timeout to focus properly after render
+            setTimeout(() => input.focus(), 50);
+
+            confirmCallback = (result) => {
+                if (result === true) callback(input.value);
+                else callback(null);
+            };
+        }
+
+        function closeModal(result = false) {
+            getEl('custom-modal-backdrop').classList.add('hidden');
+            if (confirmCallback) {
+                confirmCallback(result);
+                confirmCallback = null;
+            }
+        }
+        
+        // Handle Enter key in modal input
+        function handleModalKey(e) {
+            if(e.key === 'Enter') closeModal(true);
+        }
+        // -----------------------------------------------------------
+
         function initApp() {
             supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
             
@@ -83,7 +151,7 @@
             supabase.from('rooms').select('id', { count: 'exact', head: true }).then(({ error }) => {
                 if(error) console.error('DB Error:', error);
                 else {
-                    const el = document.getElementById('status-indicator');
+                    const el = getEl('status-indicator');
                     if(el) el.classList.replace('text-gray-500', 'text-green-500');
                 }
             });
@@ -117,17 +185,16 @@
                 if(newp) { profileCache[currentUser.id] = newp; updateMyProfileUI(newp); }
             }
 
-            // attempt to set geolocation (optional)
+            // attempt to set geolocation
             try {
                 if(navigator.geolocation) {
                     navigator.geolocation.getCurrentPosition(async pos => {
                         const { latitude, longitude } = pos.coords;
-                        // update profile lat/lon
                         await supabase.from('profiles').update({ lat: latitude, lon: longitude, updated_at: new Date() }).eq('id', currentUser.id);
-                        // update cache
-                        profileCache[currentUser.id] = {...profileCache[currentUser.id], lat: latitude, lon: longitude};
+                        if(profileCache[currentUser.id]) {
+                            profileCache[currentUser.id] = {...profileCache[currentUser.id], lat: latitude, lon: longitude};
+                        }
                     }, err => {
-                        // user denied or unavailable - ignore
                         console.warn('Geolocation not available:', err && err.message);
                     }, { enableHighAccuracy: false, maximumAge: 60_000, timeout: 5_000 });
                 }
@@ -145,11 +212,12 @@
             if(editName) editName.value = data.username || '';
             const editBio = getEl('edit-bio');
             if(editBio) editBio.value = data.bio || '';
+            const editAvatar = getEl('edit-avatar');
+            if(editAvatar) editAvatar.value = data.avatar || '';
             const preview = getEl('edit-avatar-preview');
             if(preview) preview.src = data.avatar || '';
         }
 
-        const getEl = (id) => document.getElementById(id);
         function showView(name) {
             ['auth-view', 'app-view'].forEach(id => getEl(id).classList.add('hidden'));
             getEl(name + '-view').classList.remove('hidden');
@@ -189,22 +257,30 @@
             const grid = getEl('room-grid');
             grid.innerHTML = '';
             if(data?.length) data.forEach(renderRoomCard);
-            else grid.innerHTML = `<div class="col-span-full text-center text-gray-500 py-10 opacity-50">No channels.<br>Create one to start.</div>`;
+            else grid.innerHTML = `<div class="col-span-full text-center text-gray-500 py-10 opacity-50 font-mono">No channels.<br>Create one to start.</div>`;
         }
 
         function renderRoomCard(r) {
             const grid = getEl('room-grid');
             const div = document.createElement('div');
+            const isOwner = r.created_by === currentUser.id;
+            
             div.className = 'p-4 bg-[#27272a] border border-[#3f3f46] hover:border-emerald-500 cursor-pointer rounded-lg transition flex flex-col justify-between h-28 shadow-sm';
-            // lock icon if room has password_hash
+            
+            // lock icon
             const lockHtml = r.password_hash ? `<i class="fas fa-lock text-yellow-400" title="Locked channel"></i>` : '';
+            
+            const deleteButtonHtml = isOwner ? 
+                `<button onclick="event.stopPropagation(); deleteRoom('${r.id}')" class="text-red-500 hover:text-red-300 transition p-1 rounded-full bg-[#18181b] hover:bg-red-900/20" title="Delete Channel"><i class="fas fa-trash-alt text-xs"></i></button>` : '';
+
             div.innerHTML = `
                 <div class="flex justify-between items-start">
                     <div class="font-bold text-emerald-400 text-lg truncate pr-2"># ${r.name}</div>
                     ${lockHtml}
                 </div>
                 <div class="flex justify-between items-end">
-                    <div class="text-[10px] text-gray-500 bg-[#18181b] px-2 py-1 rounded font-mono">${r.created_by === currentUser.id ? 'OWN' : 'OPEN'}</div>
+                    <div class="text-[10px] text-gray-500 bg-[#18181b] px-2 py-1 rounded font-mono">${isOwner ? 'OWN' : 'OPEN'}</div>
+                    ${deleteButtonHtml}
                 </div>
             `;
             div.onclick = () => openRoom(r.id, r.name);
@@ -221,7 +297,7 @@
                 const div = document.createElement('div');
                 div.className = 'p-2 hover:bg-[#27272a] cursor-pointer flex items-center gap-3 rounded-lg transition mb-1';
                 div.innerHTML = `
-                    <div class="relative flex-shrink-0"><img src="${u.avatar}" class="w-8 h-8 rounded-full bg-gray-700 object-cover"><div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-[#18181b] ${u.status === 'online' ? 'bg-green-500' : 'bg-gray-500'}"></div></div>
+                    <div class="relative flex-shrink-0"><img src="${u.avatar}" onerror="this.src='https://api.dicebear.com/7.x/bottts/svg?seed=fallback'" class="w-8 h-8 rounded-full bg-gray-700 object-cover"><div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-[#18181b] ${u.status === 'online' ? 'bg-green-500' : 'bg-gray-500'}"></div></div>
                     <div class="min-w-0 overflow-hidden"><div class="text-sm font-bold text-gray-200 truncate">${u.username}</div></div>
                 `;
                 div.onclick = () => startDM(u);
@@ -229,27 +305,30 @@
             });
         }
 
-        // OPEN ROOM: first check for password_hash and validate
         async function openRoom(id, name) {
-            // get latest room doc (to check password_hash)
+            // get latest room doc
             const { data: room, error: roomErr } = await supabase.from('rooms').select('*').eq('id', id).single();
             if(roomErr || !room) {
-                alert('Room not found or error: ' + (roomErr?.message || 'unknown'));
+                showCustomAlert('Room not found. It may have been deleted.', 'Access Error');
                 return;
             }
 
             if(room.password_hash) {
-                // ask user for password
-                const input = prompt('This room is locked. Enter password to join:');
-                if(input === null) return; // cancelled
-                const hashed = await sha256Hex(input);
-                if(hashed !== room.password_hash) {
-                    alert('Incorrect password.');
-                    return;
-                }
+                showCustomPrompt('This frequency is encrypted. Enter passphrase:', async (input) => {
+                    if(input === null) return;
+                    const hashed = await sha256Hex(input);
+                    if(hashed !== room.password_hash) {
+                        showCustomAlert('Access Denied: Invalid Passphrase.', 'Security Alert');
+                        return;
+                    }
+                    loadRoomMessages(id, name);
+                }, 'Secure Channel', '', true);
+            } else {
+                loadRoomMessages(id, name);
             }
+        }
 
-            // proceed to open room
+        async function loadRoomMessages(id, name) {
             currentRoomId = id;
             getEl('chat-header-name').textContent = name;
             switchPanel('chat-interface');
@@ -257,7 +336,6 @@
             const box = getEl('msg-box');
             box.innerHTML = '<div class="flex justify-center mt-20"><i class="fas fa-circle-notch fa-spin text-emerald-500 text-2xl"></i></div>';
             
-            // load messages
             const { data, error } = await supabase.from('messages').select('*').eq('room_id', id).order('created_at');
             
             if(error) {
@@ -309,9 +387,9 @@
             div.className = `msg-row ${isMe ? 'justify-end' : 'justify-start'} ${isOptimistic ? 'msg-pending' : ''}`;
             
             div.innerHTML = `
-                ${!isMe ? `<img id="img-${m.id}" src="${profile.avatar}" class="w-8 h-8 rounded-full mr-2 mt-1 self-end flex-shrink-0 border border-gray-700 cursor-pointer">` : ''}
+                ${!isMe ? `<img id="img-${m.id}" src="${profile.avatar}" onerror="this.src='https://api.dicebear.com/7.x/bottts/svg?seed=err'" class="w-8 h-8 rounded-full mr-2 mt-1 self-end flex-shrink-0 border border-gray-700 cursor-pointer">` : ''}
                 <div class="msg-bubble ${isMe ? 'msg-mine' : 'msg-theirs'} group">
-                    ${!isMe ? `<div id="name-${m.id}" class="text-[10px] text-emerald-500 font-bold mb-1 cursor-pointer opacity-80 hover:opacity-100">${profile.username}</div>` : ''}
+                    ${!isMe ? `<div id="name-${m.id}" class="text-xs text-emerald-400 font-bold mb-1 cursor-pointer opacity-80 hover:opacity-100 drop-shadow-sm">${profile.username}</div>` : ''}
                     <div class="break-words">${m.text}</div>
                     <div class="text-[9px] opacity-40 text-right mt-1 font-mono select-none">${new Date(m.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
                     ${isMe && !isOptimistic ? `<div class="msg-actions"><button onclick="deleteMessage('${m.id}')" class="bg-[#09090b] rounded-full w-8 h-8 flex items-center justify-center text-red-500 border border-red-900 shadow-lg hover:bg-red-900 hover:text-white transition"><i class="fas fa-trash-alt"></i></button></div>` : ''}
@@ -333,17 +411,15 @@
             inp.focus();
             const empty = getEl('empty-msg'); if(empty) empty.remove();
 
-            // SEND TO SUPABASE
             const { data, error } = await supabase.from('messages').insert({ room_id: currentRoomId, text: text, sender_id: currentUser.id }).select().single();
 
             if(error) {
                 const el = document.getElementById(`msg-${tempId}`);
                 if(el) { el.style.border = "1px solid red"; el.title = error.message; }
-                alert("Message Failed to Save: " + error.message + "\n\nCheck if 'room_id' column in Supabase is type TEXT (not UUID).");
+                showCustomAlert("Failed: " + error.message, 'Error');
                 return;
             }
 
-            // Success
             const el = document.getElementById(`msg-${tempId}`);
             if(el && data) {
                 el.id = `msg-${data.id}`;
@@ -354,130 +430,176 @@
         }
 
         async function deleteMessage(id) {
-            if(!confirm("Are you sure you want to delete this message?")) return;
-            
-            const el = document.getElementById(`msg-${id}`);
-            if(el) el.style.opacity = '0.3';
-            const { error } = await supabase.from('messages').delete().eq('id', id);
-            if(error && el) {
-                el.style.opacity = '1';
-                alert("Delete Failed: " + error.message);
-            }
+            showCustomConfirm("Delete this message?", async (confirmed) => {
+                if (!confirmed) return;
+                const el = document.getElementById(`msg-${id}`);
+                if(el) el.style.opacity = '0.3';
+                const { error } = await supabase.from('messages').delete().eq('id', id);
+                if(error) {
+                    if(el) el.style.opacity = '1';
+                    showCustomAlert("Delete Failed: " + error.message, 'Error');
+                }
+            }, 'Confirm Deletion', 'Delete');
         }
 
-        // CREATE ROOM with optional password (hashed SHA-256)
         async function createRoom() {
-            const name = prompt("Frequency Name:");
-            if(!name) return;
-            const pass = prompt("Set Password (leave empty for public room):");
-            let password_hash = null;
-            if(pass && pass.length > 0) {
-                password_hash = await sha256Hex(pass);
-            }
-            const { error } = await supabase.from('rooms').insert({ name, created_by: currentUser.id, password_hash, created_at: new Date() });
-            if(error) alert('Create room failed: ' + error.message);
-            else alert('Channel created.');
+            showCustomPrompt("Enter Frequency Name:", async (name) => {
+                if(!name) return;
+                showCustomPrompt("Set Password (optional):", async (pass) => {
+                    let password_hash = null;
+                    if(pass && pass.length > 0) {
+                        password_hash = await sha256Hex(pass);
+                    }
+                    const { error } = await supabase.from('rooms').insert({ name, created_by: currentUser.id, password_hash, created_at: new Date() });
+                    if(error) showCustomAlert('Create failed: ' + error.message, 'Error');
+                    else showCustomAlert('Channel created.', 'Success');
+                }, "Security Settings", "Leave empty for public");
+            }, "New Channel", "e.g. General Ops");
         }
 
         async function deleteRoom(id) {
-            if(confirm("Terminate this frequency?")) await supabase.from('rooms').delete().eq('id', id);
+            showCustomConfirm("Terminate this frequency? All data will be lost.", async (confirmed) => {
+                if (confirmed) {
+                    const { error } = await supabase.from('rooms').delete().eq('id', id);
+                    if (error) {
+                        showCustomAlert("Failed: " + error.message, 'Error');
+                    } else if (currentRoomId === id) {
+                        goBack();
+                    }
+                }
+            }, 'Confirm Termination', 'Terminate', 'Cancel');
         }
 
-        function startDM(user) {
+        // --- DM LOGIC FIX ---
+        async function startDM(user) {
+            // 1. Generate deterministic ID
             const ids = [currentUser.id, user.id].sort();
-            openRoom(`${ids[0]}_${ids[1]}`, `@${user.username}`);
+            const dmId = `${ids[0]}_${ids[1]}`;
+            const dmName = `@${user.username}`;
+
+            // 2. Check if room exists, if not, CREATE it first
+            const { data: existing } = await supabase.from('rooms').select('id').eq('id', dmId).single();
+            
+            if(!existing) {
+                // DM room missing, try creating it
+                // Note: This works if 'id' column accepts text. If UUID restricted, this will fail.
+                const { error: createErr } = await supabase.from('rooms').insert({
+                    id: dmId,
+                    name: dmName,
+                    created_by: currentUser.id,
+                    created_at: new Date()
+                });
+                
+                if(createErr) {
+                    console.error("DM Creation Error:", createErr);
+                    // If error is strictly about UUID, we can't fix it client-side easily without changing DB
+                    if(createErr.message.includes('uuid')) {
+                        showCustomAlert("Cannot start DM: Backend requires UUIDs for rooms.", "System Error");
+                        return;
+                    }
+                }
+            }
+
+            // 3. Open the room
+            openRoom(dmId, dmName);
         }
 
         async function updateProfile() {
-            const updates = { username: getEl('edit-username').value, bio: getEl('edit-bio').value, updated_at: new Date() };
-            await supabase.from('profiles').update(updates).eq('id', currentUser.id);
-            alert("Identity Updated!"); loadProfile(); goBack();
+            const updates = { 
+                username: getEl('edit-username').value, 
+                bio: getEl('edit-bio').value, 
+                avatar: getEl('edit-avatar').value, // Include avatar
+                updated_at: new Date() 
+            };
+            const { error } = await supabase.from('profiles').update(updates).eq('id', currentUser.id);
+            
+            if (error) {
+                showCustomAlert("Error: " + error.message, 'Update Failed');
+            } else {
+                showCustomAlert("Identity Updated!", 'Success');
+                loadProfile(); 
+                goBack();
+            }
         }
 
         async function handleLogin() {
             const btn = getEl('btn-login'); btn.textContent = "Authenticating...";
             const { error } = await supabase.auth.signInWithPassword({ email: getEl('l-email').value, password: getEl('l-pass').value });
             btn.textContent = "ESTABLISH LINK";
-            if(error) alert(error.message);
+            if(error) showCustomAlert(error.message, 'Login Failed');
         }
 
         async function handleSignup() {
             const btn = getEl('btn-signup'); btn.textContent = "Processing...";
             const { data, error } = await supabase.auth.signUp({ email: getEl('s-email').value, password: getEl('s-pass').value });
             btn.textContent = "REGISTER";
-            if(error) return alert(error.message);
+            if(error) return showCustomAlert(error.message, 'Registration Failed');
             if(data.user) {
                 await supabase.from('profiles').insert({ id: data.user.id, username: getEl('s-user').value || ('anon-'+data.user.id.slice(0,6)), email: getEl('s-email').value, avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${data.user.id}`, status: 'online' });
-                alert("Identity Created. Please Login."); getEl('f-signup').classList.add('hidden'); getEl('f-login').classList.remove('hidden');
+                showCustomAlert("Identity Created. Please Login.", 'Account Created');
+                getEl('f-signup').classList.add('hidden'); getEl('f-login').classList.remove('hidden');
             }
         }
 
         async function handleLogout() { await supabase.auth.signOut(); window.location.reload(); }
 
-        /********** Nearby detection functions **********/
-        // Haversine distance in km
+        // Helper for geolocation math
         function haversineKm(lat1, lon1, lat2, lon2) {
-            const R = 6371; // km
+            const R = 6371; 
             const dLat = (lat2 - lat1) * Math.PI / 180;
             const dLon = (lon2 - lon1) * Math.PI / 180;
-            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                      Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) *
-                      Math.sin(dLon/2) * Math.sin(dLon/2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-            return R * c;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) * Math.sin(dLon/2) * Math.sin(dLon/2);
+            return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
         }
 
         async function findNearby(radiusKm = NEARBY_RADIUS_KM) {
             if(!currentUser) return [];
             const { data: me } = await supabase.from('profiles').select('lat,lon').eq('id', currentUser.id).single();
             if(!me || me.lat == null || me.lon == null) {
-                alert('Your location not available. Allow location access in your browser and refresh (or update profile).');
+                showCustomAlert('Location data unavailable. Please enable permissions.', 'System Notice');
                 return [];
             }
 
             const { data: users } = await supabase.from('profiles').select('*');
             const nearby = [];
             users.forEach(u => {
-                if(!u.lat || !u.lon) return;
-                if(u.id === currentUser.id) return;
+                if(!u.lat || !u.lon || u.id === currentUser.id) return;
                 const dist = haversineKm(me.lat, me.lon, u.lat, u.lon);
                 if(dist <= radiusKm) nearby.push({...u, distance_km: +(dist.toFixed(2))});
             });
-
-            // sort by distance
-            nearby.sort((a,b) => a.distance_km - b.distance_km);
-            return nearby;
+            return nearby.sort((a,b) => a.distance_km - b.distance_km);
         }
 
         async function showNearby() {
             const list = await findNearby();
-            // build modal
             const existing = document.getElementById('nearby-modal');
             if(existing) existing.remove();
 
             const modal = document.createElement('div');
             modal.id = 'nearby-modal';
             modal.className = 'nearby-modal';
-            modal.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-                <div style="font-weight:700">Nearby Users (within ${NEARBY_RADIUS_KM} km)</div>
+            modal.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:1px solid #28323a;padding-bottom:12px;">
+                <div style="font-weight:700;font-size:1.25rem;">NEARBY USERS</div>
                 <div><button onclick="document.getElementById('nearby-modal')?.remove()" class="btn" style="width:auto;padding:6px 10px;background:#1f2937;color:#fff;border-radius:8px">Close</button></div>
             </div>
-            <div id="nearby-list">${list.length ? '' : '<div class="text-gray-500">No nearby users found.</div>'}</div>`;
+            <div id="nearby-list" style="max-height: calc(100% - 60px); overflow-y: auto;">
+                ${list.length ? '' : `<div class="text-gray-500 text-center py-8">No nearby users found within ${NEARBY_RADIUS_KM} km.</div>`}
+            </div>`;
             document.body.appendChild(modal);
 
             const container = document.getElementById('nearby-list');
             list.forEach(u => {
                 const item = document.createElement('div');
                 item.className = 'nearby-item';
-                item.innerHTML = `<img src="${u.avatar}" class="w-10 h-10 rounded-lg object-cover border border-gray-700">
+                item.onclick = () => startDMFromNearby(u.id);
+                item.innerHTML = `<img src="${u.avatar}" onerror="this.src='https://api.dicebear.com/7.x/bottts/svg?seed=err'" class="w-10 h-10 rounded-lg object-cover border border-gray-700 flex-shrink-0">
                     <div style="flex:1">
                       <div style="font-weight:700">${u.username} <span style="color:#94a3b8;font-size:12px">• ${u.distance_km} km</span></div>
-                      <div style="font-size:12px;color:#94a3b8">${u.bio ? u.bio.slice(0,80) : ''}</div>
+                      <div style="font-size:12px;color:#94a3b8">${u.bio ? u.bio.slice(0,80) : 'No bio set.'}</div>
                     </div>
                     <div style="display:flex;gap:8px">
-                      <button class="btn" style="width:auto;padding:6px 10px;background:transparent;color:#fff;border:1px solid rgba(255,255,255,0.04)" onclick="startDMFromNearby('${u.id}')">Message</button>
+                      <button class="btn" style="width:auto;padding:6px 10px;background:var(--primary);color:black;" onclick="event.stopPropagation(); startDMFromNearby('${u.id}')">Message</button>
                     </div>`;
-                item.onclick = () => startDM(u);
                 container.appendChild(item);
             });
         }
@@ -488,9 +610,6 @@
             const modal = document.getElementById('nearby-modal'); if(modal) modal.remove();
         }
 
-        /********** end nearby **********/
-
-        // utility: load profile (used after edit) - simple refresh
         async function loadProfile() {
             const { data } = await supabase.from('profiles').select('*').eq('id', currentUser.id).single();
             if(data) { profileCache[currentUser.id] = data; updateMyProfileUI(data); }
@@ -500,6 +619,21 @@
     </script>
 </head>
 <body>
+    <!-- CUSTOM MODAL STRUCTURE -->
+    <div id="custom-modal-backdrop" class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center hidden" onclick="closeModal(false)">
+        <div id="custom-modal-content" class="bg-[#18181b] border border-[#27272a] rounded-xl p-6 max-w-sm mx-4 w-full shadow-2xl transform transition-all" onclick="event.stopPropagation()">
+            <h3 id="modal-title" class="text-xl font-bold text-white mb-3">Alert</h3>
+            <p id="modal-message" class="text-gray-300 mb-4 text-sm"></p>
+            
+            <input id="modal-input" type="text" class="input-field hidden mb-4" onkeypress="handleModalKey(event)">
+            
+            <div class="flex justify-end gap-3">
+                <button id="modal-cancel-btn" class="hidden px-4 py-2 text-sm font-semibold rounded-lg text-gray-400 hover:bg-[#27272a] transition" onclick="closeModal(false)">Cancel</button>
+                <button id="modal-ok-btn" class="px-4 py-2 text-sm font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-500 transition" onclick="closeModal(true)">OK</button>
+            </div>
+        </div>
+    </div>
+
     <!-- OVERLAY -->
     <div id="overlay" class="overlay" onclick="toggleSidebar(false)"></div>
 
@@ -530,7 +664,7 @@
             <!-- SIDEBAR -->
             <div id="sidebar" class="sidebar p-4">
                 <div class="flex items-center gap-3 mb-8 pb-4 border-b border-[#27272a] cursor-pointer active:bg-[#27272a] p-2 rounded-xl" onclick="switchPanel('profile-panel')">
-                    <img id="my-avatar" class="w-12 h-12 rounded-xl border-2 border-emerald-500 bg-gray-800">
+                    <img id="my-avatar" class="w-12 h-12 rounded-xl border-2 border-emerald-500 bg-gray-800" onerror="this.src='https://api.dicebear.com/7.x/bottts/svg?seed=fallback'">
                     <div class="flex-1 overflow-hidden">
                         <div class="font-bold text-emerald-400 truncate text-lg" id="my-name">...</div>
                         <div class="text-[10px] font-mono flex items-center gap-2 text-gray-500">
@@ -544,7 +678,7 @@
                     <button onclick="switchPanel('profile-panel')" class="w-full text-left p-3 text-sm font-bold text-gray-300 hover:bg-[#27272a] rounded-lg flex items-center gap-3"><i class="fas fa-cog w-5 text-center text-emerald-500"></i> SETTINGS</button>
                 </div>
 
-                <!-- NEW Nearby button -->
+                <!-- Nearby button -->
                 <div class="mb-6">
                     <button onclick="showNearby()" class="w-full text-left p-3 text-sm font-bold text-gray-300 hover:bg-[#27272a] rounded-lg flex items-center gap-3">
                         <i class="fas fa-location-dot w-5 text-center text-emerald-500"></i> NEARBY
@@ -590,9 +724,10 @@
                     <div class="glass-card w-full max-w-lg p-8 relative">
                         <button onclick="goBack()" class="absolute top-4 right-4 text-gray-400 hover:text-white p-2"><i class="fas fa-times text-xl"></i></button>
                         <h2 class="text-2xl font-bold text-white mb-8 text-center tracking-wide">EDIT IDENTITY</h2>
-                        <div class="flex justify-center mb-8"><div class="relative"><img id="edit-avatar-preview" src="" class="w-24 h-24 rounded-2xl border-2 border-emerald-500 shadow-[0_0_30px_rgba(16,185,129,0.3)]"></div></div>
+                        <div class="flex justify-center mb-8"><div class="relative"><img id="edit-avatar-preview" src="" class="w-24 h-24 rounded-2xl border-2 border-emerald-500 shadow-[0_0_30px_rgba(16,185,129,0.3)]" onerror="this.src='https://api.dicebear.com/7.x/bottts/svg?seed=fallback'"></div></div>
                         <div class="space-y-5">
                             <div><label class="text-xs font-bold text-gray-500 ml-1 mb-1 block">DISPLAY NAME</label><input id="edit-username" type="text" class="input-field"></div>
+                            <div><label class="text-xs font-bold text-gray-500 ml-1 mb-1 block">AVATAR URL</label><input id="edit-avatar" type="text" class="input-field" placeholder="https://..." oninput="document.getElementById('edit-avatar-preview').src = this.value"></div>
                             <div><label class="text-xs font-bold text-gray-500 ml-1 mb-1 block">BIO DATA</label><textarea id="edit-bio" rows="3" class="input-field resize-none"></textarea></div>
                             <button onclick="updateProfile()" class="btn shadow-lg shadow-emerald-900/20">SAVE CHANGES</button>
                         </div>
